@@ -1,0 +1,194 @@
+{% extends "dasar.html" %}
+{% from "_grafik.html" import garis, donat as gambar_donat, segmen as gambar_segmen, meter %}
+{% block judul %}Ringkasan{% endblock %}
+{% block alat %}
+<span class="redup kecil">s.d. {{ akhir|wita_us }} WITA</span>
+<nav class="pil" aria-label="Rentang waktu">
+  {% for k, v in semua_rentang.items() %}
+  <a href="{{ url_for('deteksi.ringkasan', rentang=k) }}" {% if k == rentang %}class="aktif" aria-current="true"{% endif %}>{{ v[0] }}</a>
+  {% endfor %}
+</nav>
+{% endblock %}
+{% block isi %}
+{% if tertinggal %}<p class="peringatan">Data terakhir lebih dari 2 hari yang lalu; angka dihitung mundur dari data terakhir.</p>{% endif %}
+
+{# ---------------------------------------------------------------- Strip Telemetri ala Wazuh #}
+<dl class="wz-strip">
+  <div class="wz-strip-item">
+    <dt>Server</dt>
+    <dd>{{ s.nama_server or 'VPS' }}</dd>
+  </div>
+  <div class="wz-strip-item">
+    <dt>Status</dt>
+    <dd class="wz-strip-status">
+      {% if s.aktif %}<span class="titik-ok"></span>aktif{% elif s.berhenti == 'ya' %}<span class="titik-mati"></span>berhenti{% else %}<span class="titik-mati"></span>tidak ada detak{% endif %}
+    </dd>
+  </div>
+  <div class="wz-strip-item">
+    <dt>Model aktif</dt>
+    <dd>{% if info %}<a class="mono" href="{{ url_for('deteksi.model') }}">{{ info.versi }}</a>{% else %}—{% endif %}</dd>
+  </div>
+  <div class="wz-strip-item">
+    <dt>Aliran diperiksa ({{ nama_rentang }})</dt>
+    <dd>{{ n[0]|angka }}</dd>
+  </div>
+  <div class="wz-strip-item">
+    <dt>Anomali</dt>
+    <dd>{{ n[1]|angka }} <span class="redup">({{ ((n[1] / n[0]) if n[0] else 0)|persen }})</span></dd>
+  </div>
+  <div class="wz-strip-item">
+    <dt>Telegram</dt>
+    <dd><span class="wz-tag">{{ s.telegram or '—' }}</span></dd>
+  </div>
+  <div class="wz-strip-item">
+    <dt>Detak terakhir</dt>
+    <dd>{{ s.terakhir_us|lalu_us }}</dd>
+  </div>
+</dl>
+
+{# ---------------------------------------------------------------- Row 1: 2fr (Charts) | 1fr (Jenis anomali) | 1fr (Donat Model) #}
+<div class="wz-grid-3">
+  <section class="wz-card">
+    <div class="wz-card-head">
+      <h2>Lalu lintas per jam <span class="redup kecil">{{ nama_rentang }} · WITA</span></h2>
+      <span class="wz-tag">{{ n[0]|angka }} aliran</span>
+    </div>
+    <div class="wz-inner">
+      <h3><span class="kunci s1"></span>Aliran diperiksa</h3>
+      {{ garis(g_aliran, "Aliran diperiksa per jam", "s1") }}
+      <h3><span class="kunci s2"></span>Aliran ditandai anomali</h3>
+      {{ garis(g_anomali, "Aliran anomali per jam", "s2") }}
+    </div>
+  </section>
+
+  <section class="wz-card">
+    <div class="wz-card-head">
+      <h2>Jenis anomali</h2>
+      <a class="kecil" href="{{ url_for('deteksi.anomali') }}" title="Lihat daftar anomali">↗</a>
+    </div>
+    {% if seg %}
+    {{ gambar_segmen(seg, "Pembagian anomali menurut dugaan jenis kejadian") }}
+    <p class="wz-subhead">Dugaan kejadian</p>
+    <ul class="wz-tactic-list">
+      {% for g in kelompok %}
+      <li {% if not g.aliran %}class="kosong"{% endif %}>
+        <span class="wz-tactic-kiri"><span class="swatch {{ g.kelas }}"></span>{{ g.nama }}</span>
+        <span class="wz-count-pill">{{ g.aliran|angka }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="redup">Tidak ada anomali dalam {{ nama_rentang }} terakhir.</p>
+    {% endif %}
+  </section>
+
+  <section class="wz-card">
+    <div class="wz-card-head">
+      <h2>Model penanda</h2>
+      <span class="wz-tag">A atau C</span>
+    </div>
+    {% if donat %}
+    <div class="donat-baris">
+      {{ gambar_donat(donat, "Pembagian anomali menurut model yang menandai", "anomali") }}
+      <table class="legenda">
+        <tbody>
+        {% for b in model_penanda %}
+        <tr {% if not b.nilai %}class="kosong"{% endif %}>
+          <td><span class="dot-leg {{ b.kelas }}"></span>{{ b.nama }} ({{ b.nilai|angka }})</td>
+          <td class="kanan redup">{{ b.persen|persen(0) }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="redup">Belum ada anomali untuk dibagi menurut model.</p>
+    {% endif %}
+  </section>
+</div>
+
+{# ---------------------------------------------------------------- Row 2: Vulnerability-style (Metrik + Top IP) | Kondisi Server #}
+<div class="wz-grid-2">
+  <section class="wz-card">
+    <div class="wz-card-head">
+      <h2>Ringkasan deteksi &amp; IP teratas</h2>
+      <a class="kecil" href="{{ url_for('deteksi.hampir') }}">Hampir anomali →</a>
+    </div>
+    <div class="wz-vuln-split">
+      <div class="wz-stat-stack">
+        <div class="wz-stat-box merah">
+          <p class="angka-stat">{{ n[1]|angka }}</p>
+          <p class="label-stat">Anomali</p>
+        </div>
+        <div class="wz-stat-box waspada">
+          <p class="angka-stat">{{ ip_anomali|angka }}</p>
+          <p class="label-stat">IP anomali</p>
+        </div>
+        <div class="wz-stat-box biru">
+          <p class="angka-stat">{{ notif[1]|angka }}</p>
+          <p class="label-stat">Notif terkirim</p>
+        </div>
+        <div class="wz-stat-box hijau">
+          <p class="angka-stat">{% if lat_median is not none %}{{ '%.2f'|format(lat_median)|replace('.', ',') }} s{% else %}—{% endif %}</p>
+          <p class="label-stat">Latensi median</p>
+        </div>
+      </div>
+
+      <div class="wz-inner-table">
+        <table>
+          <thead><tr><th>IP sumber</th><th class="kanan">Anomali</th><th>Model</th><th class="kanan">Port</th><th class="kanan">SSH</th></tr></thead>
+          <tbody>
+          {% for t in top[:6] %}
+            <tr>
+              <td class="mono"><a href="{{ url_for('deteksi.rincian_ip', ip=t.src_ip) }}">{{ t.src_ip }}</a></td>
+              <td class="kanan">{{ t.n|angka }}</td>
+              <td><span class="lencana model">{{ t.oleh }}</span></td>
+              <td class="kanan">{{ t.port_unik|angka }}</td>
+              <td class="kanan">{{ t.ssh|angka }}</td>
+            </tr>
+          {% else %}
+            <tr><td colspan="5" class="redup">Tidak ada anomali dalam {{ nama_rentang }} terakhir.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="wz-card">
+    <div class="wz-card-head">
+      <h2>Kondisi server</h2>
+      {% if s.aktif %}<span class="lencana ok">berjalan</span>{% elif s.berhenti == 'ya' %}<span class="lencana mati">berhenti</span>{% else %}<span class="lencana mati">tidak ada detak</span>{% endif %}
+    </div>
+    <div class="wz-inner">
+      {% if server %}
+      <div class="statistik">
+        <div><p class="angka-besar">{{ (server.cpu_persen * 100)|round|int }}<small>%</small></p>{{ meter(server.cpu_persen) }}
+          <p>CPU ({{ server.cpu_inti }} inti)</p></div>
+        <div><p class="angka-besar">{{ (server.ram_persen * 100)|round|int }}<small>%</small></p>{{ meter(server.ram_persen) }}
+          <p>RAM ({{ server.ram_pakai|ukuran }} / {{ server.ram_total|ukuran }})</p></div>
+        <div><p class="angka-besar">{{ (server.disk_persen * 100)|round|int }}<small>%</small></p>{{ meter(server.disk_persen) }}
+          <p>Disk ({{ server.disk_pakai|ukuran }} / {{ server.disk_total|ukuran }})</p></div>
+      </div>
+      {% else %}
+      <p class="redup">Metrik CPU/RAM/Disk tersedia saat berjalan di Linux.</p>
+      {% endif %}
+      <dl class="detail">
+        {% if s.mulai_us %}<dt>Berjalan sejak</dt><dd>{{ s.mulai_us|int|wita_us }}</dd>{% endif %}
+        <dt>IP dinotifikasi</dt><dd>{{ notif[2]|angka }} dari {{ ip_anomali|angka }} IP{% if notif[0] - notif[1] %} · <span class="teks-bahaya">{{ notif[0] - notif[1] }} gagal</span>{% endif %}{% if lat_maks is not none %} (maks {{ '%.1f'|format(lat_maks)|replace('.', ',') }} s){% endif %}</dd>
+        <dt>Umpan balik</dt><dd><a href="{{ url_for('deteksi.umpan_balik') }}">{{ terbuka }} laporan terbuka</a></dd>
+      </dl>
+    </div>
+  </section>
+</div>
+
+{# ---------------------------------------------------------------- Row 3: Recent events #}
+<section class="wz-card">
+  <div class="wz-card-head">
+    <h2>Anomali terbaru</h2>
+    <a class="kecil" href="{{ url_for('deteksi.anomali') }}">Lihat semua →</a>
+  </div>
+  {% set rows = terbaru %}
+  {% include "deteksi/_tabel_anomali.html" %}
+</section>
+{% endblock %}

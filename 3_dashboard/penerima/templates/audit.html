@@ -1,0 +1,31 @@
+{% extends "dasar.html" %}
+{% block judul %}Catatan audit{% endblock %}
+{% block isi %}
+<section class="panel-kartu">
+  <div class="panel-kepala">
+    <h1>Catatan audit <span class="lencana netral">{{ total }} entri</span></h1>
+  </div>
+  <div class="gulir">
+  <table>
+    <thead><tr><th>Waktu (WITA)</th><th>Kejadian</th><th>Instalasi / aktor</th><th>IP</th><th>Berkas</th><th class="kanan">Ukuran</th><th>HTTP</th><th>Keterangan</th></tr></thead>
+    <tbody>
+    {% for a in rows %}
+      <tr>
+        <td title="{{ a.waktu_utc }}">{{ a.waktu_utc|wita }}</td>
+        <td><span class="lencana {{ 'ok' if a.jenis in ('UPLOAD_DITERIMA', 'LOGIN_OK') else ('mati' if 'DITOLAK' in a.jenis or 'GAGAL' in a.jenis or 'BLOKIR' in a.jenis else '') }}">{{ a.jenis }}</span></td>
+        <td>{{ a.instalasi or '' }}{% if a.aktor and a.aktor != a.instalasi %}{{ ' · ' if a.instalasi }}{{ a.aktor }}{% endif %}</td>
+        <td class="mono">{{ a.ip or '' }}</td>
+        <td class="mono">{{ a.nama_berkas or '' }}</td>
+        <td class="kanan">{{ a.ukuran|ukuran if a.ukuran is not none else '' }}</td>
+        <td>{{ a.kode_http or '' }}</td>
+        <td class="redup">{{ a.keterangan or '' }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="8" class="redup">Belum ada catatan.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% include "_halaman.html" with context %}
+</section>
+{% endblock %}

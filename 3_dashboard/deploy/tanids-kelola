@@ -1,0 +1,10 @@
+#!/bin/sh
+# Pembungkus alat kelola: dijalankan sebagai user tanids agar izin basis data tetap benar.
+set -e
+if [ "$(id -u)" -ne 0 ]; then
+    echo "Jalankan dengan sudo: sudo tanids-kelola $*" >&2
+    exit 1
+fi
+cd /opt/ta-nids-server
+exec runuser -u tanids -- env PENERIMA_DATA_DIR=/var/lib/ta-nids-server \
+    /opt/ta-nids-server/venv/bin/python /opt/ta-nids-server/kelola.py "$@"

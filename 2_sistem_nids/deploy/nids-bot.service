@@ -1,0 +1,32 @@
+[Unit]
+Description=NIDS bot Telegram (perintah baca-saja: /status /ringkasan /ip /hampir)
+After=network-online.target nids-deteksi.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nids
+Group=nids
+EnvironmentFile=-/etc/nids-deteksi/rahasia.env
+ExecStart=/opt/nids-deteksi/venv/bin/python /opt/nids-deteksi/bot.py --log /var/lib/nids-deteksi/deteksi.db
+Restart=on-failure
+RestartSec=15
+UMask=0027
+
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+# berkas -shm log SQLite (mode WAL) perlu ditulis walau koneksinya baca-saja
+ReadWritePaths=/var/lib/nids-deteksi
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictSUIDSGID=yes
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,5 @@
+<form class="cari-ip" method="get" action="{{ url_for('deteksi.anomali') }}" role="search">
+  <label for="cari-ip" class="sr">Buka rincian IP sumber</label>
+  <input id="cari-ip" name="cari" value="{{ cari or '' }}" placeholder="Cari IP sumber…" size="20" autocomplete="off">
+  <button type="submit">Buka</button>
+</form>

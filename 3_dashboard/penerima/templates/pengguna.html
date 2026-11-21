@@ -1,0 +1,94 @@
+{% extends "dasar.html" %}
+{% block judul %}Pengguna{% endblock %}
+{% block isi %}
+{% if pesan %}<p class="galat">{{ pesan }}</p>{% endif %}
+{% if baru %}
+<div class="kotak-sandi" role="status">
+  <p>Akun <strong class="mono">{{ baru.username }}</strong> {{ baru.aksi }}. Password sementara (tampil sekali):</p>
+  <p class="sandi mono">{{ baru.sandi }}</p>
+</div>
+{% endif %}
+
+<div class="panel-grid-2">
+  <section class="panel-kartu">
+    <div class="panel-kepala">
+      <h2>Tambah pengguna</h2>
+    </div>
+    <form method="post" action="{{ url_for('web.pengguna') }}" class="formulir">
+      <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+      <label>Username <input name="username" value="{{ isi.username or '' }}" required maxlength="32"
+        pattern="[a-z0-9][a-z0-9._\-]{2,31}" placeholder="mis. budi.s" autocomplete="off"></label>
+      <label>Nama lengkap <span class="redup">(opsional)</span> <input name="nama" value="{{ isi.nama or '' }}" maxlength="80" class="penuh"></label>
+      <fieldset class="pilihan tegak">
+        <legend>Peran</legend>
+        {% for k, nama in nama_peran.items() %}
+        <label><input type="radio" name="peran" value="{{ k }}" {% if (isi.peran or 'analis') == k %}checked{% endif %}>
+          <strong>{{ nama }}</strong> <small class="redup">{{ ket_peran[k]|capitalize }}</small></label>
+        {% endfor %}
+      </fieldset>
+      <button type="submit" class="utama">Buat akun</button>
+    </form>
+  </section>
+
+  <section class="panel-kartu">
+    <div class="panel-kepala">
+      <h2>Hak akses tiap peran</h2>
+    </div>
+    <div class="gulir"><table class="hak">
+      <thead><tr><th></th><th>Administrator</th><th>Analis</th><th>Pemantau</th></tr></thead>
+      <tbody>
+        <tr><td>Melihat ringkasan, anomali, model, rekaman, audit</td><td>✓</td><td>✓</td><td>✓</td></tr>
+        <tr><td>Melaporkan serangan lolos / alarm palsu, periksa ulang</td><td>✓</td><td>✓</td><td class="redup">—</td></tr>
+        <tr><td>Menandai laporan selesai, unduh kasus pelatihan ulang</td><td>✓</td><td class="redup">—</td><td class="redup">—</td></tr>
+        <tr><td>Menambah, mengubah peran, menonaktifkan pengguna</td><td>✓</td><td class="redup">—</td><td class="redup">—</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+</div>
+
+<section class="panel-kartu">
+  <div class="panel-kepala">
+    <h2>Daftar pengguna <span class="lencana netral">{{ rows|length }} akun</span></h2>
+  </div>
+  <div class="gulir"><table>
+    <thead><tr><th>Username</th><th>Nama</th><th>Peran</th><th>Status</th><th>Dibuat</th><th>Masuk terakhir</th><th>Tindakan</th></tr></thead>
+    <tbody>
+    {% for r in rows %}
+      <tr {% if not r.aktif %}class="kosong"{% endif %}>
+        <td class="mono">{{ r.username }}{% if r.id == pengguna.id %} <span class="redup">(Anda)</span>{% endif %}</td>
+        <td>{{ r.nama or '—' }}</td>
+        <td><span class="lencana peran-{{ r.peran }}">{{ nama_peran.get(r.peran, r.peran) }}</span></td>
+        <td>{% if not r.aktif %}<span class="lencana mati">nonaktif</span>
+          {% elif r.wajib_ganti_sandi %}<span class="lencana">belum ganti password</span>
+          {% else %}<span class="lencana ok">aktif</span>{% endif %}</td>
+        <td class="redup">{{ r.dibuat_utc|wita }}{% if r.dibuat_oleh %} · {{ r.dibuat_oleh }}{% endif %}</td>
+        <td class="redup">{{ r.login_terakhir_utc|lalu if r.login_terakhir_utc else 'belum pernah' }}</td>
+        <td>
+          {% if r.id != pengguna.id %}
+          <div class="aksi-baris">
+            <form method="post" action="{{ url_for('web.ubah_pengguna', uid=r.id) }}">
+              <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="aksi" value="peran">
+              <label class="sr" for="peran-{{ r.id }}">Peran {{ r.username }}</label>
+              <select id="peran-{{ r.id }}" name="peran">
+                {% for k, nama in nama_peran.items() %}<option value="{{ k }}" {% if r.peran == k %}selected{% endif %}>{{ nama }}</option>{% endfor %}
+              </select>
+              <button type="submit">Simpan</button>
+            </form>
+            <form method="post" action="{{ url_for('web.ubah_pengguna', uid=r.id) }}">
+              <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="aksi" value="reset">
+              <button type="submit">Reset password</button>
+            </form>
+            <form method="post" action="{{ url_for('web.ubah_pengguna', uid=r.id) }}">
+              <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+              <input type="hidden" name="aksi" value="{{ 'aktif' if not r.aktif else 'nonaktif' }}">
+              <button type="submit" {% if r.aktif %}class="bahaya"{% endif %}>{{ 'Aktifkan' if not r.aktif else 'Nonaktifkan' }}</button>
+            </form>
+          </div>
+          {% else %}<a href="{{ url_for('web.akun') }}">Ganti password →</a>{% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</section>
+{% endblock %}

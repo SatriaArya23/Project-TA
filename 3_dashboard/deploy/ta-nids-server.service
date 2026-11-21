@@ -1,0 +1,42 @@
+[Unit]
+Description=TA NIDS - server penerima rekaman lalu lintas
+After=network.target
+
+[Service]
+Type=simple
+User=tanids
+Group=tanids
+EnvironmentFile=/etc/ta-nids-server/config.env
+WorkingDirectory=/opt/ta-nids-server
+# gthread: koneksi kosong (pre-connect browser, mis. lewat terowongan SSH tanpa nginx) tidak menahan worker;
+# dengan worker sync, dua koneksi kosong saja sudah membuat dashboard loading terus sampai batas waktu.
+ExecStart=/opt/ta-nids-server/venv/bin/gunicorn --bind 127.0.0.1:__PORT__ --workers 2 --worker-class gthread --threads 8 --keep-alive 5 --timeout 300 --forwarded-allow-ips 127.0.0.1 wsgi:app
+Restart=on-failure
+RestartSec=5
+UMask=0027
+
+# Sandbox: tanpa hak root, hanya boleh menulis ke folder data
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+ProtectSystem=strict
+# + folder bersama NIDS: daftar IP tepercaya (diabaikan bila belum ada)
+ReadWritePaths=/var/lib/ta-nids-server -/var/lib/nids-bersama
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+
+[Install]
+WantedBy=multi-user.target

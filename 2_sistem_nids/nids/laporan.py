@@ -1,0 +1,254 @@
+# -*- coding: utf-8 -*-
+"""
+Teks jawaban perintah bot Telegram (/status, /ringkasan, /ip, /hampir), dibaca dari log deteksi.
+
+Semua fungsi hanya MEMBACA log (koneksi baca-saja) dan mengembalikan teks berformat HTML Telegram.
+Hanya memakai pustaka standar, sehingga juga bisa diuji tanpa numpy/scikit-learn.
+"""
+import html
+import ipaddress
+import sqlite3
+import time
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+from .dugaan import dugaan
+from .umpan_balik import ambang_model, hampir_anomali, kedekatan
+
+WITA = timezone(timedelta(hours=8))
+BULAN = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"]
+JAM_US = 3600 * 1_000_000
+BATAS_DETAK_US = 180 * 1_000_000          # modul menulis detak tiap 60 detik
+e = html.escape
+
+
+def buka_baca(path):
+    con = sqlite3.connect(Path(path).resolve().as_uri() + "?mode=ro", uri=True, timeout=5)
+    con.row_factory = sqlite3.Row
+    return con
+
+
+def kini_us():
+    return int(time.time() * 1_000_000)
+
+
+def wita(us, detik=False):
+    d = datetime.fromtimestamp(us / 1e6, WITA)
+    return ("%d %s, %02d.%02d" + (".%02d" if detik else "")) % (
+        (d.day, BULAN[d.month - 1], d.hour, d.minute) + ((d.second,) if detik else ()))
+
+
+def lalu(us, kini=None):
+    dt = max(0, ((kini or kini_us()) - us) / 1e6)
+    if dt < 90:
+        return "%d detik lalu" % dt
+    if dt < 5400:
+        return "%d menit lalu" % round(dt / 60)
+    if dt < 129600:
+        return "%d jam lalu" % round(dt / 3600)
+    return "%d hari lalu" % round(dt / 86400)
+
+
+def angka(n):
+    return "{:,}".format(int(n or 0)).replace(",", ".")
+
+
+def persen(x, d=0):
+    return (("%." + str(d) + "f%%") % ((x or 0) * 100)).replace(".", ",")
+
+
+def status_modul(db, kini=None):
+    s = {r["kunci"]: r["nilai"] for r in db.execute("SELECT kunci, nilai FROM status")}
+    kini = kini or kini_us()
+    terakhir = int(s.get("terakhir_us") or 0)
+    s["terakhir_us"] = terakhir
+    s["aktif"] = s.get("berhenti") != "ya" and bool(terakhir) and kini - terakhir < BATAS_DETAK_US
+    return s
+
+
+def _rentang(argumen):
+    """'' / '24j' -> 1 hari, '7h' / '7' -> 7 hari."""
+    a = (argumen or "").strip().lower()
+    return (7, "7 hari") if a in ("7h", "7", "7hari", "minggu") else (1, "24 jam")
+
+
+# ------------------------------------------------------------------ /status
+def teks_status(db, kondisi=None, kini=None):
+    kini = kini or kini_us()
+    s = status_modul(db, kini)
+    awal = kini - 24 * JAM_US
+    n = db.execute("SELECT COALESCE(SUM(aliran), 0), COALESCE(SUM(anomali), 0) FROM ringkasan WHERE menit_utc >= ?",
+                   (awal // 1_000_000,)).fetchone()
+    ip = db.execute("SELECT COUNT(DISTINCT src_ip) FROM anomali WHERE waktu_selesai_us >= ?", (awal,)).fetchone()[0]
+    notif = db.execute("SELECT COUNT(*), COALESCE(SUM(berhasil), 0) FROM notifikasi WHERE waktu_kirim_us >= ?",
+                       (awal,)).fetchone()
+    m = db.execute("SELECT versi FROM model ORDER BY id DESC LIMIT 1").fetchone()
+    nama = s.get("nama_server") or "server"
+    if s["aktif"]:
+        baris = ["🟢 <b>%s · deteksi berjalan</b>" % e(nama)]
+    elif s.get("berhenti") == "ya":
+        baris = ["🔴 <b>%s · deteksi BERHENTI</b>" % e(nama)]
+    else:
+        baris = ["🔴 <b>%s · deteksi tidak berdetak</b>" % e(nama)]
+    if s["terakhir_us"]:
+        baris.append("Detak terakhir: %s" % lalu(s["terakhir_us"], kini))
+    if s.get("mulai_us"):
+        baris.append("Berjalan sejak: %s WITA" % wita(int(s["mulai_us"])))
+    if m:
+        baris.append("Model aktif: <code>%s</code>" % e(m["versi"]))
+    baris += ["", "<b>24 jam terakhir</b>",
+              "• %s aliran diperiksa" % angka(n[0]),
+              "• %s anomali dari %s IP sumber" % (angka(n[1]), angka(ip)),
+              "• %s notifikasi terkirim%s" % (angka(notif[1]),
+                                              (", %d gagal" % (notif[0] - notif[1])) if notif[0] - notif[1] else "")]
+    if kondisi:
+        baris += ["", "<b>Server</b>",
+                  "CPU %s · RAM %s · disk %s" % (persen(kondisi["cpu_persen"]), persen(kondisi["ram_persen"]),
+                                                  persen(kondisi["disk_persen"]))]
+    return "\n".join(baris)
+
+
+# ------------------------------------------------------------------ /ringkasan
+def teks_ringkasan(db, argumen="", kini=None):
+    kini = kini or kini_us()
+    hari, nama = _rentang(argumen)
+    awal = kini - hari * 24 * JAM_US
+    n = db.execute("SELECT COALESCE(SUM(aliran), 0), COALESCE(SUM(anomali), 0) FROM ringkasan WHERE menit_utc >= ?",
+                   (awal // 1_000_000,)).fetchone()
+    rows = db.execute("SELECT src_ip, oleh, agg_ip_aliran, agg_ip_port_unik, agg_ip_aliran_ssh FROM anomali "
+                      "WHERE waktu_selesai_us >= ?", (awal,)).fetchall()
+    jenis, per_ip = {}, {}
+    for r in rows:
+        d = dugaan({"agg_ip_aliran": r[2] or 0, "agg_ip_port_unik": r[3] or 0, "agg_ip_aliran_ssh": r[4] or 0})
+        jenis[d] = jenis.get(d, 0) + 1
+        p = per_ip.setdefault(r[0], {"n": 0, "oleh": set(), "dugaan": {}})
+        p["n"] += 1
+        p["oleh"].add(r[1])
+        p["dugaan"][d] = p["dugaan"].get(d, 0) + 1
+    notif = db.execute("SELECT COALESCE(SUM(berhasil), 0) FROM notifikasi WHERE waktu_kirim_us >= ?",
+                       (awal,)).fetchone()[0]
+    baris = ["📊 <b>Ringkasan %s terakhir</b>" % nama,
+             "%s aliran diperiksa · %s anomali (%s) · %s IP sumber · %s notifikasi" % (
+                 angka(n[0]), angka(n[1]), persen(n[1] / n[0] if n[0] else 0, 2), angka(len(per_ip)), angka(notif))]
+    if not rows:
+        return "\n".join(baris + ["", "Tidak ada anomali. ✅"])
+    baris += ["", "<b>Dugaan jenis</b>"]
+    baris += ["• %s: %s aliran" % (e(k), angka(v)) for k, v in sorted(jenis.items(), key=lambda x: -x[1])]
+    baris += ["", "<b>IP sumber teratas</b>"]
+    for ip, p in sorted(per_ip.items(), key=lambda x: -x[1]["n"])[:5]:
+        utama = max(p["dugaan"].items(), key=lambda x: x[1])[0]
+        baris.append("• <code>%s</code> — %s anomali, %s, model %s" % (
+            e(ip), angka(p["n"]), e(utama.lower()), "/".join(sorted(p["oleh"]))))
+    baris += ["", "Rincian satu IP: /ip &lt;alamat&gt;"]
+    return "\n".join(baris)
+
+
+# ------------------------------------------------------------------ /ip
+def teks_ip(db, argumen, tepercaya=None, kini=None):
+    kini = kini or kini_us()
+    teks = (argumen or "").strip().split()
+    if not teks:
+        return "Tulis alamatnya, mis. <code>/ip 203.0.113.7</code>"
+    try:
+        ip = str(ipaddress.ip_address(teks[0]))
+    except ValueError:
+        return "“%s” bukan alamat IP yang valid." % e(teks[0][:64])
+    r = db.execute("SELECT COUNT(*), SUM(oleh != ''), MIN(waktu_selesai_us), MAX(waktu_selesai_us), "
+                   "COUNT(DISTINCT dst_port) FROM aliran WHERE src_ip = ?", (ip,)).fetchone()
+    if not r[0]:
+        return ("IP <code>%s</code> belum pernah tercatat oleh modul deteksi (belum pernah membuka koneksi ke server "
+                "dalam masa simpan log)." % e(ip))
+    baris = ["🔎 <b>%s</b>" % e(ip)]
+    t = tepercaya.cocok(ip) if tepercaya is not None else None
+    if t:
+        baris.append("✅ IP tepercaya (%s%s)" % (e(t["cidr"]), (" · " + e(t["keterangan"])) if t.get("keterangan") else ""))
+    baris += ["%s aliran · %s ditandai anomali (%s)" % (angka(r[0]), angka(r[1]), persen((r[1] or 0) / r[0], 1)),
+              "Pertama %s · terakhir %s (%s)" % (wita(r[2]), wita(r[3]), lalu(r[3], kini))]
+    port = db.execute("SELECT dst_port, COUNT(*) FROM aliran WHERE src_ip = ? GROUP BY dst_port ORDER BY 2 DESC LIMIT 5",
+                      (ip,)).fetchall()
+    baris.append("Port tujuan: %s%s" % (", ".join("%s (%s)" % (p, angka(n)) for p, n in port),
+                                          " …" if r[4] > 5 else ""))
+    am, skor = ambang_model(db), {}
+    for mid, ma, mc in db.execute("SELECT model_id, MAX(skor_a), MAX(skor_c) FROM aliran WHERE src_ip = ? "
+                                  "GROUP BY model_id", (ip,)):
+        for k in kedekatan(am, mid, ma, mc):
+            if k["model"] not in skor or k["persentil"] > skor[k["model"]]["persentil"]:
+                skor[k["model"]] = k
+    if skor:
+        baris += ["", "<b>Skor tertinggi vs ambang</b>"]
+        for nama in ("A", "C"):
+            if nama in skor:
+                k = skor[nama]
+                baris.append("• Model %s: %.4f / %.4f (persentil %s, ditandai &gt; %s)" % (
+                    nama, k["skor"], k["ambang"], persen(k["persentil"], 2), persen(k["persentil_ambang"], 2)))
+    a = db.execute("SELECT oleh, agg_ip_aliran, agg_ip_port_unik, agg_ip_aliran_ssh FROM anomali WHERE src_ip = ? "
+                   "ORDER BY agg_ip_aliran DESC LIMIT 1", (ip,)).fetchone()
+    if a:
+        baris.append("Dugaan: %s" % e(dugaan({"agg_ip_aliran": a[1] or 0, "agg_ip_port_unik": a[2] or 0,
+                                               "agg_ip_aliran_ssh": a[3] or 0})))
+    nt = db.execute("SELECT COUNT(*), MAX(waktu_kirim_us) FROM notifikasi WHERE src_ip = ? AND berhasil = 1",
+                    (ip,)).fetchone()
+    if nt[0]:
+        baris.append("Notifikasi: %s pesan, terakhir %s" % (angka(nt[0]), lalu(nt[1], kini)))
+    return "\n".join(baris)
+
+
+# ------------------------------------------------------------------ /hampir
+def teks_hampir(db, argumen="", tepercaya=None, kini=None):
+    kini = kini or kini_us()
+    hari, nama = _rentang(argumen)
+    daftar = hampir_anomali(db, kini - hari * 24 * JAM_US,
+                            abaikan=(lambda ip: tepercaya.cocok(ip) is not None) if tepercaya is not None else None)
+    if not daftar:
+        return "Tidak ada IP yang hampir ditandai dalam %s terakhir. ✅" % nama
+    baris = ["🟡 <b>Hampir anomali · %s terakhir</b>" % nama,
+             "%d IP tidak ditandai, tetapi skornya di atas batas aman umpan balik. Teratas:" % len(daftar), ""]
+    for p in daftar[:10]:
+        t = p["terdekat"]
+        port = [row[0] for row in db.execute(
+            "SELECT dst_port FROM aliran WHERE src_ip = ? AND waktu_selesai_us >= ? GROUP BY dst_port "
+            "ORDER BY COUNT(*) DESC LIMIT 3", (p["src_ip"], p["awal"]))]
+        baris.append("• <code>%s</code> — %d/%d aliran dekat ambang, model %s %s / %s, port %s" % (
+            e(p["src_ip"]), p["dekat"], p["aliran"], t["model"], persen(t["persentil"], 2),
+            persen(t["persentil_ambang"], 2), ",".join(map(str, port))))
+    baris += ["", "Bukan berarti serangan; cek dengan /ip &lt;alamat&gt; lalu laporkan lewat dashboard bila mencurigakan."]
+    return "\n".join(baris)
+
+
+BANTUAN = "\n".join([
+    "🤖 <b>Perintah bot NIDS</b> (hanya membaca, tidak mengubah apa pun)",
+    "",
+    "/status — modul deteksi berjalan? ringkasan 24 jam, kondisi server",
+    "/ringkasan — anomali 24 jam terakhir per jenis + IP teratas (<code>/ringkasan 7h</code> = 7 hari)",
+    "/ip &lt;alamat&gt; — rincian satu IP sumber",
+    "/hampir — IP yang hampir ditandai anomali (<code>/hampir 7h</code>)",
+    "/bantuan — daftar perintah ini",
+])
+
+PERINTAH_MENU = [("status", "Status modul deteksi & server"), ("ringkasan", "Ringkasan anomali 24 jam"),
+                 ("ip", "Rincian satu IP sumber, mis. /ip 1.2.3.4"), ("hampir", "IP yang hampir ditandai anomali"),
+                 ("bantuan", "Daftar perintah")]
+
+
+def jawab(path_log, perintah, argumen, tepercaya=None, kondisi=None):
+    """Satu perintah -> teks jawaban. Log dibuka baca-saja untuk setiap perintah."""
+    perintah = perintah.lower()
+    if perintah in ("start", "bantuan", "help"):
+        return BANTUAN
+    if perintah not in ("status", "ringkasan", "ip", "hampir"):
+        return "Perintah tidak dikenal. Ketik /bantuan."
+    try:
+        db = buka_baca(path_log)
+    except sqlite3.Error:
+        return "Log deteksi belum tersedia."
+    try:
+        if perintah == "status":
+            return teks_status(db, kondisi)
+        if perintah == "ringkasan":
+            return teks_ringkasan(db, argumen)
+        if perintah == "ip":
+            return teks_ip(db, argumen, tepercaya)
+        return teks_hampir(db, argumen, tepercaya)
+    finally:
+        db.close()
+

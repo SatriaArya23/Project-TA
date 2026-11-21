@@ -1,0 +1,4 @@
+<nav class="pil sub-tab" aria-label="Jenis daftar">
+  <a href="{{ url_for('deteksi.anomali') }}" {% if sub == 'ditandai' %}class="aktif" aria-current="page"{% endif %}>Ditandai anomali</a>
+  <a href="{{ url_for('deteksi.hampir') }}" {% if sub == 'hampir' %}class="aktif" aria-current="page"{% endif %}>Hampir anomali</a>
+</nav>

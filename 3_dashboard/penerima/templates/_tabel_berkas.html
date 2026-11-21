@@ -1,0 +1,28 @@
+{% set daftar = rows if rows is defined else terbaru %}
+<div class="gulir">
+<table>
+  <thead><tr>
+    <th>Mulai direkam (WITA)</th><th>Instalasi</th><th>Nama berkas</th><th class="kanan">Paket</th>
+    <th class="kanan">Percobaan koneksi</th><th class="kanan">IP luar</th><th class="kanan">Ukuran</th>
+    <th>Diterima server (WITA)</th><th>SHA-256</th><th></th>
+  </tr></thead>
+  <tbody>
+  {% for b in daftar %}
+    <tr>
+      <td><strong>{{ b.nama|direkam }}</strong></td>
+      <td>{{ b.instalasi }}</td>
+      <td class="mono redup">{{ b.nama }}</td>
+      <td class="kanan">{{ b.paket|angka if b.paket is not none else '—' }}</td>
+      <td class="kanan">{{ b.syn_masuk|angka if b.syn_masuk is not none else '—' }}</td>
+      <td class="kanan">{{ b.ip_luar|angka if b.ip_luar is not none else '—' }}</td>
+      <td class="kanan">{{ b.ukuran|ukuran }}</td>
+      <td class="redup">{{ b.diterima_utc|wita }}</td>
+      <td class="mono redup" title="{{ b.sha256 }}">{{ b.sha256[:12] }}…</td>
+      <td><a href="{{ url_for('web.unduh', berkas_id=b.id) }}">unduh</a></td>
+    </tr>
+  {% else %}
+    <tr><td colspan="10" class="redup">Belum ada berkas.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>

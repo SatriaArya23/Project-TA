@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+venv/
+.venv/
+*.db
+*.db-*
+config.env
+token*.txt
+login*.txt
+*.pem
+*.key
+*.pcap
+*.pcap.gz

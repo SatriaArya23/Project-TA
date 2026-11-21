@@ -1,0 +1,48 @@
+{% extends "dasar.html" %}
+{% block judul %}Hampir anomali{% endblock %}
+{% block alat %}
+{% set sub = 'hampir' %}{% include "deteksi/_sub_anomali.html" %}
+<nav class="pil" aria-label="Rentang waktu">
+  {% for k, v in semua_rentang.items() %}
+  <a href="{{ url_for('deteksi.hampir', rentang=k) }}" {% if k == rentang %}class="aktif" aria-current="true"{% endif %}>{{ v[0] }}</a>
+  {% endfor %}
+</nav>
+{% include "deteksi/_cari_ip.html" %}
+{% endblock %}
+{% block isi %}
+<section class="wz-card">
+  <div class="wz-card-head">
+    <h2>Hampir anomali <span class="wz-tag">{{ total|angka }} IP sumber</span></h2>
+    <span class="redup kecil">{{ nama_rentang }} s.d. {{ akhir|wita_us }} WITA · batas A ≤ {{ batas.A|persen(0) }}, C ≤ {{ batas.C|persen(0) }}</span>
+  </div>
+
+  <div class="gulir">
+  <table>
+    <thead><tr>
+      <th>IP sumber</th><th class="kanan">Aliran mendekati ambang</th><th>Model terdekat</th>
+      <th class="kanan">Skor / ambang</th><th class="kanan">Persentil / ambang</th>
+      <th>Port tujuan teratas</th><th>Terakhir (WITA)</th>{% if boleh_lapor %}<th></th>{% endif %}
+    </tr></thead>
+    <tbody>
+    {% for p in daftar %}{% set t = p.terdekat %}
+      <tr>
+        <td class="mono"><a href="{{ url_for('deteksi.rincian_ip', ip=p.src_ip) }}">{{ p.src_ip }}</a></td>
+        <td class="kanan">{{ p.dekat|angka }} <span class="redup">/ {{ p.aliran|angka }}</span></td>
+        <td><span class="lencana model">{{ t.model }}</span></td>
+        <td class="kanan mono">{{ t.skor|desimal(4) }} <span class="redup">/ {{ t.ambang|desimal(4) }}</span></td>
+        <td class="kanan">{{ t.persentil|persen(2) }} <span class="redup">/ {{ t.persentil_ambang|persen(2) }}</span></td>
+        <td class="mono">{% for port, n in p.port %}{{ port }}<span class="redup">×{{ n }}</span>{% if not loop.last %}, {% endif %}{% endfor %}</td>
+        <td class="redup">{{ p.akhir|wita_us }}</td>
+        {% if boleh_lapor %}<td class="nowrap"><a href="{{ url_for('deteksi.umpan_balik', jenis='lolos', ip=p.src_ip, mulai=p.isi_mulai, akhir=p.isi_akhir) }}">Periksa ulang →</a></td>{% endif %}
+      </tr>
+    {% else %}
+      <tr><td colspan="{{ 8 if boleh_lapor else 7 }}" class="redup">Tidak ada IP hampir anomali dalam {{ nama_rentang }} terakhir.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% if total > daftar|length %}
+  <p class="catatan">Menampilkan {{ daftar|length }} dari {{ total|angka }} IP.</p>
+  {% endif %}
+</section>
+{% endblock %}

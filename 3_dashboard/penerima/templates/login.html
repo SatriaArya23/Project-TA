@@ -1,0 +1,40 @@
+{% extends "dasar.html" %}
+{% block judul %}Masuk{% endblock %}
+{% block isi %}
+<div class="wz-login-split">
+  <aside class="wz-login-media" aria-hidden="true">
+    <img class="wz-login-foto foto-1" src="{{ aset('foto-anemon.jpg') }}" alt="" width="1400" height="1050">
+    <img class="wz-login-foto foto-2" src="{{ aset('foto-karang.jpg') }}" alt="" width="1400" height="1049">
+    <div class="wz-login-scrim"></div>
+    <div class="wz-login-caption">
+      <p class="wz-cap-merek">PT Hotdog Water Sport</p>
+      <p class="wz-cap-sub">NIDS · Pemantauan Anomali Lalu Lintas Server</p>
+    </div>
+  </aside>
+
+  <div class="wz-login-pane">
+    <section class="login">
+      <div class="login-merek">
+        <img class="login-logo" src="{{ aset('logo-hotdog.png') }}" alt="Hotdog" width="172" height="65">
+        <span class="wz-pill-root">NIDS · Anomaly Detection</span>
+      </div>
+      <h1>Masuk ke NIDS</h1>
+      {% if pesan %}<p class="galat">{{ pesan }}</p>{% endif %}
+      <form method="post">
+        <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+        <label for="u-login">Username</label>
+        <div class="wz-field">
+          <svg class="wz-field-ikon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8.5" r="3.8"/><path d="M4.5 20c.8-3.8 3.8-5.8 7.5-5.8s6.7 2 7.5 5.8"/></svg>
+          <input id="u-login" name="username" placeholder="Username" autocomplete="username" required autofocus>
+        </div>
+        <label for="p-login">Password</label>
+        <div class="wz-field">
+          <svg class="wz-field-ikon" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="9.5" rx="1.8"/><path d="M8 11V7.8a4 4 0 0 1 8 0V11"/></svg>
+          <input id="p-login" name="password" type="password" placeholder="Password" autocomplete="current-password" required>
+        </div>
+        <button type="submit" class="utama">Masuk</button>
+      </form>
+    </section>
+  </div>
+</div>
+{% endblock %}

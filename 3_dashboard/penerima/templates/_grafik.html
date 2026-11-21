@@ -1,0 +1,81 @@
+{% macro batang(g, judul, kelas="") %}
+<svg class="grafik" viewBox="0 0 {{ g.lebar }} {{ g.tinggi }}" role="img" aria-label="{{ judul }}">
+  {% for l in g.garis %}
+  <line x1="{{ g.kiri }}" x2="{{ g.kanan }}" y1="{{ '%.1f'|format(l.y) }}" y2="{{ '%.1f'|format(l.y) }}"
+        class="{{ 'g-dasar' if loop.first else 'g-garis' }}"/>
+  <text x="{{ g.kiri - 6 }}" y="{{ '%.1f'|format(l.y + 4) }}" class="g-teks" text-anchor="end">{{ l.teks }}</text>
+  {% endfor %}
+  {% for b in g.batang %}
+  <g class="g-titik"><title>{{ b.tip }}</title>
+    <rect x="{{ '%.1f'|format(b.x - 1) }}" y="{{ b.y_atas }}" width="{{ '%.1f'|format(b.w + 2) }}"
+          height="{{ b.h_penuh }}" class="g-sasaran"/>
+    {% if b.d %}<path d="{{ b.d }}" class="g-batang {{ kelas }}"/>{% endif %}
+  </g>
+  {% endfor %}
+  {% for l in g.label %}
+  <text x="{{ '%.1f'|format(l.x) }}" y="{{ g.y_label }}" class="g-teks" text-anchor="middle">{{ l.teks }}</text>
+  {% endfor %}
+</svg>
+{% endmacro %}
+
+{% macro bilah(persen, kelas="biru") %}
+<svg class="bilah" viewBox="0 0 100 4" preserveAspectRatio="none" aria-hidden="true">
+  <rect width="100" height="4" class="bilah-dasar"/>
+  <rect width="{{ '%.1f'|format([[persen or 0, 0]|max, 100]|min) }}" height="4" class="bilah-isi {{ kelas }}"/>
+</svg>
+{% endmacro %}
+
+{# Grafik garis + area satu seri. Titik hover: kolom tak terlihat per jam (data-tip dibaca grafik.js; <title> sebagai cadangan). #}
+{% macro garis(g, judul, kelas="s1") %}
+<div class="grafik-garis" data-grafik>
+<svg viewBox="0 0 {{ g.lebar }} {{ g.tinggi }}" role="img" aria-label="{{ judul }}">
+  {% for l in g.garis %}
+  <line x1="{{ g.kiri }}" x2="{{ g.kanan }}" y1="{{ l.y }}" y2="{{ l.y }}" class="{{ 'g-dasar' if loop.first else 'g-garis' }}"/>
+  <text x="{{ g.kiri - 8 }}" y="{{ '%.1f'|format(l.y + 4) }}" class="g-teks" text-anchor="end">{{ l.teks }}</text>
+  {% endfor %}
+  {% for l in g.label %}
+  <text x="{{ l.x }}" y="{{ g.y_label }}" class="g-teks" text-anchor="middle">{{ l.teks }}</text>
+  {% endfor %}
+  <path d="{{ g.area }}" class="g-area {{ kelas }}"/>
+  <path d="{{ g.d }}" class="g-jalur {{ kelas }}"/>
+  {% if g.akhir %}<circle cx="{{ g.akhir.x }}" cy="{{ g.akhir.y }}" r="4" class="g-ujung {{ kelas }}"/>{% endif %}
+  <line class="g-silang" x1="0" x2="0" y1="{{ g.atas }}" y2="{{ g.dasar }}" data-silang/>
+  <circle class="g-ujung g-sorot {{ kelas }}" r="4.5" cx="0" cy="0" data-sorot/>
+  {% for p in g.sasaran %}
+  <rect class="g-sasaran" x="{{ p.x }}" y="{{ g.atas }}" width="{{ p.w }}" height="{{ g.dasar - g.atas }}"
+        data-x="{{ p.x + p.w / 2 }}" data-y="{{ p.y }}" data-tip="{{ p.tip }}"><title>{{ p.tip|replace('|', ': ') }}</title></rect>
+  {% endfor %}
+</svg>
+<div class="g-tip" data-tip-kotak hidden></div>
+</div>
+{% endmacro %}
+
+{# Donat: proporsi beberapa bagian dari satu keseluruhan; angka total di tengah. #}
+{% macro donat(d, judul, satuan) %}
+{% set c = d.pusat %}
+<svg class="donat" viewBox="0 0 {{ c * 2 }} {{ c * 2 }}" role="img" aria-label="{{ judul }}">
+  <circle cx="{{ c }}" cy="{{ c }}" r="{{ d.r }}" class="donat-dasar" stroke-width="{{ d.tebal }}"/>
+  {% for b in d.busur %}
+  <circle cx="{{ c }}" cy="{{ c }}" r="{{ d.r }}" class="donat-busur {{ b.kelas }}" stroke-width="{{ d.tebal }}"
+          stroke-dasharray="{{ b.dash }}" stroke-dashoffset="{{ b.offset }}" transform="rotate(-90 {{ c }} {{ c }})">
+    <title>{{ b.nama }}: {{ b.nilai }} ({{ b.persen|persen(1) }})</title></circle>
+  {% endfor %}
+  <text x="{{ c }}" y="{{ c + 2 }}" class="donat-angka" text-anchor="middle">{{ d.total|angka }}</text>
+  <text x="{{ c }}" y="{{ c + 22 }}" class="donat-satuan" text-anchor="middle">{{ satuan }}</text>
+</svg>
+{% endmacro %}
+
+{# Bilah tersegmen: satu keseluruhan dibagi beberapa bagian, celah 3 px. #}
+{% macro segmen(s, judul) %}
+<svg class="segmen" viewBox="0 0 {{ s.lebar }} 10" preserveAspectRatio="none" role="img" aria-label="{{ judul }}">
+  {% for b in s.bagian %}<rect x="{{ b.x }}" y="0" width="{{ b.w }}" height="10" rx="2" class="seg {{ b.kelas }}"><title>{{ b.nama }}: {{ b.nilai }}</title></rect>{% endfor %}
+</svg>
+{% endmacro %}
+
+{# Meter (0–1): isi berwarna sesuai tingkat, jalur dari warna yang sama namun lebih muda. #}
+{% macro meter(x) %}
+{% set p = [[x or 0, 0]|max, 1]|min %}
+<svg class="meter {{ 'bahaya' if p >= 0.9 else ('waspada' if p >= 0.75 else 'aman') }}" viewBox="0 0 100 6" preserveAspectRatio="none" aria-hidden="true">
+  <rect width="100" height="6" rx="1" class="meter-jalur"/><rect width="{{ '%.1f'|format(p * 100) }}" height="6" rx="1" class="meter-isi"/>
+</svg>
+{% endmacro %}

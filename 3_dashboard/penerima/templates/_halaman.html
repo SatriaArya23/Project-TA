@@ -1,0 +1,9 @@
+{% set akhir = ((total - 1) // per) + 1 if total else 1 %}
+{% if akhir > 1 %}
+{% set args = request.args.to_dict() %}
+<nav class="halaman">
+  {% if hal > 1 %}{% set _ = args.update(hal=hal - 1) %}<a href="?{{ args|urlencode }}">&larr; sebelumnya</a>{% endif %}
+  <span>halaman {{ hal }} dari {{ akhir }}</span>
+  {% if hal < akhir %}{% set _ = args.update(hal=hal + 1) %}<a href="?{{ args|urlencode }}">berikutnya &rarr;</a>{% endif %}
+</nav>
+{% endif %}

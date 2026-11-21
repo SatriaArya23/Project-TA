@@ -1,0 +1,5 @@
+hasil/
+__pycache__/
+.pytest_cache/
+*.pcap
+*.pcap.gz

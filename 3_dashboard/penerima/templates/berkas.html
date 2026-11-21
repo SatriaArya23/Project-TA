@@ -1,0 +1,30 @@
+{% extends "dasar.html" %}
+{% block judul %}Rekaman per jam{% endblock %}
+{% block isi %}
+<section class="panel-kartu">
+  <div class="panel-kepala">
+    <h1>Rekaman per jam <span class="lencana netral">{{ total }} berkas</span></h1>
+    <a class="tombol" href="{{ url_for('web.berkas') }}">← Semua hari</a>
+  </div>
+  <form method="get" class="saring">
+    {% if semua_inst %}
+    <label>Instalasi
+      <select name="instalasi">
+        <option value="">Semua</option>
+        {% for i in semua_inst %}<option {% if request.args.get('instalasi') == i.nama %}selected{% endif %}>{{ i.nama }}</option>{% endfor %}
+      </select>
+    </label>
+    {% endif %}
+    <label>Tanggal rekaman (WITA) <input type="date" name="tanggal" value="{{ tanggal or '' }}"></label>
+    <button type="submit">Saring</button>
+    {% if rows and pilih_inst and tanggal %}
+    <a class="tombol" href="{{ url_for('web.unduh_hari', instalasi=pilih_inst, tanggal=tanggal) }}">Unduh 1 hari (digabung)</a>
+    {% endif %}
+  </form>
+</section>
+
+<section class="panel-kartu">
+  {% include "_tabel_berkas.html" with context %}
+  {% include "_halaman.html" with context %}
+</section>
+{% endblock %}

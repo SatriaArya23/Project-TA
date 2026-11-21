@@ -1,0 +1,201 @@
+{% extends "dasar.html" %}
+{% from "_grafik.html" import bilah %}
+{% block judul %}Model & evaluasi{% endblock %}
+{% block isi %}
+{% if not info %}
+<section class="wz-card"><p class="redup">Belum ada model yang tercatat di log deteksi.</p></section>
+{% else %}
+
+<dl class="wz-strip">
+  <div class="wz-strip-item">
+    <dt>Versi aktif</dt>
+    <dd class="mono">{{ info.versi }}</dd>
+  </div>
+  <div class="wz-strip-item">
+    <dt>Dilatih</dt>
+    <dd>{{ info.dilatih_utc|wita if info.dilatih_utc else '—' }} WITA</dd>
+  </div>
+  <div class="wz-strip-item">
+    <dt>Jendela agregasi</dt>
+    <dd>{{ info.jendela_detik }} detik</dd>
+  </div>
+  {% if info.jumlah_aliran_latih %}
+  <div class="wz-strip-item">
+    <dt>Aliran latih</dt>
+    <dd>{{ info.jumlah_aliran_latih|angka }}{% if info.jumlah_sumber_intens %} <span class="redup">(-{{ info.jumlah_sumber_intens }} intens)</span>{% endif %}</dd>
+  </div>
+  {% endif %}
+  {% if info.versi_sklearn %}
+  <div class="wz-strip-item">
+    <dt>scikit-learn</dt>
+    <dd class="mono">{{ info.versi_sklearn }}</dd>
+  </div>
+  {% endif %}
+  {% if info.periode_latih %}
+  <div class="wz-strip-item">
+    <dt>Data latih (UTC)</dt>
+    <dd class="mono">{{ info.periode_latih[0][:16] }} – {{ info.periode_latih[1][:16] }}</dd>
+  </div>
+  {% endif %}
+</dl>
+
+<div class="model-grid">
+  <section class="kartu-kotak">
+    <div class="kartu-judul">
+      <h2>Model aktif</h2>
+      <span class="lencana ok mono">{{ info.versi }}</span>
+    </div>
+    <dl class="meta-grid">
+      <div class="meta-item">
+        <dt>Dilatih</dt>
+        <dd>{{ info.dilatih_utc|wita if info.dilatih_utc else '—' }} WITA</dd>
+      </div>
+      <div class="meta-item">
+        <dt>Jendela agregasi</dt>
+        <dd>{{ info.jendela_detik }} detik</dd>
+      </div>
+      {% if info.periode_latih %}
+      <div class="meta-item lebar">
+        <dt>Rentang data latih</dt>
+        <dd class="mono">{{ info.periode_latih[0][:16] }} – {{ info.periode_latih[1][:16] }} UTC</dd>
+      </div>
+      {% endif %}
+      {% if info.jumlah_aliran_latih %}
+      <div class="meta-item lebar">
+        <dt>Aliran latih</dt>
+        <dd>{{ info.jumlah_aliran_latih|angka }} aliran
+          {% if info.cara_latih %}<span class="sub">{{ info.cara_latih }}{% if info.jumlah_sumber_intens %} · {{ info.jumlah_sumber_intens }} sumber intens dikeluarkan{% endif %}</span>{% endif %}
+        </dd>
+      </div>
+      {% endif %}
+      {% if info.induk %}
+      <div class="meta-item">
+        <dt>Turunan dari</dt>
+        <dd class="mono">{{ info.induk }}</dd>
+      </div>
+      {% endif %}
+      {% if info.alasan %}
+      <div class="meta-item">
+        <dt>Alasan perubahan</dt>
+        <dd>{{ info.alasan }}</dd>
+      </div>
+      {% endif %}
+    </dl>
+  </section>
+
+  <section class="kartu-kotak">
+    <div class="kartu-judul">
+      <h2>Dua Isolation Forest (A + C)</h2>
+      <span class="wz-tag">Aturan: A atau C</span>
+    </div>
+    <div class="tabel-ringkas">
+      <table>
+        <thead><tr><th>Model</th><th class="kanan">Fitur</th><th class="kanan">Contamination</th><th class="kanan">Ambang skor</th></tr></thead>
+        <tbody>
+          <tr><td><span class="tebal">A</span> <span class="redup">· aliran</span></td><td class="kanan">{{ info.A.jumlah_fitur }}</td><td class="kanan">{{ info.A.contamination if info.A.contamination is not none else 'manual' }}</td><td class="kanan mono">{{ info.A.ambang|desimal(4) }}</td></tr>
+          <tr><td><span class="tebal">C</span> <span class="redup">· agregasi</span></td><td class="kanan">{{ info.C.jumlah_fitur }}</td><td class="kanan">{{ info.C.contamination if info.C.contamination is not none else 'manual' }}</td><td class="kanan mono">{{ info.C.ambang|desimal(4) }}</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="info-baris">Anomali ditandai bila skor <strong>A</strong> atau <strong>C</strong> melewati ambang.</p>
+    {% if info.riwayat_ambang %}
+    <h3>Riwayat penyesuaian ambang</h3>
+    <ul class="poin">{% for r in info.riwayat_ambang %}<li>Model {{ r.model }}: <span class="mono">{{ r.dari|desimal(4) }}</span> → <span class="mono">{{ r.ke|desimal(4) }}</span></li>{% endfor %}</ul>
+    {% endif %}
+  </section>
+</div>
+
+{% if info.evaluasi and info.evaluasi.bagian %}
+<section class="model-seksi">
+  {% for b in info.evaluasi.bagian %}
+  <div class="kartu-kotak-putih">
+    <div class="kartu-judul">
+      <h2>Hasil evaluasi · {{ b.judul }}</h2>
+      <span class="wz-tag">CIC-IDS2017</span>
+    </div>
+
+    {% set ns = namespace(utama=[], deteksi=[]) %}
+    {% for k, v in b.metrik.items() %}
+      {% if k.startswith('Deteksi ') %}
+        {% set _ = ns.deteksi.append((k, v)) %}
+      {% else %}
+        {% set _ = ns.utama.append((k, v)) %}
+      {% endif %}
+    {% endfor %}
+
+    {% if ns.utama %}
+    <div class="kpi-grid">
+      {% for k, v in ns.utama %}
+      <div class="kpi-kartu{% if 'F1' in k %} utama{% endif %}">
+        <p class="kpi-label">{{ k }}</p>
+        <p class="kpi-nilai">{{ v }}</p>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if ns.deteksi %}
+    <div class="deteksi-blok">
+      <p class="deteksi-subjudul">Deteksi per skenario serangan</p>
+      <div class="deteksi-grid">
+        {% for k, v in ns.deteksi %}
+        {% set angka_p = (v|string)|replace('%', '')|replace(',', '.')|trim|float(0) %}
+        <div class="deteksi-item">
+          <div class="deteksi-baris">
+            <span class="deteksi-nama">{{ k|replace('Deteksi ', '')|capitalize }}</span>
+            <span class="deteksi-angka">{{ v }}</span>
+          </div>
+          {{ bilah(angka_p, 'hijau') }}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {% if b.keterangan %}
+    <details class="catatan-lipat">
+      <summary>Catatan metodologi &amp; pembanding</summary>
+      <p>{{ b.keterangan }}</p>
+    </details>
+    {% endif %}
+  </div>
+  {% endfor %}
+</section>
+{% endif %}
+
+{% if info.evaluasi_umpan_balik %}
+{% set e = info.evaluasi_umpan_balik %}
+<section class="kartu-kotak">
+  <div class="kartu-judul">
+    <h2>Pelatihan ulang dari umpan balik</h2>
+    <span class="wz-tag">{{ e.jumlah_lolos }} lolos · {{ e.jumlah_palsu }} palsu</span>
+  </div>
+  <p class="catatan atas">Laporan: {% for k in e.kasus %}<a href="{{ url_for('deteksi.rincian_umpan_balik', ub_id=k) }}">#{{ k }}</a>{% if not loop.last %}, {% endif %}{% endfor %}.</p>
+  <dl class="meta-grid">
+    <div class="meta-item"><dt>Contamination terpilih</dt><dd class="mono">A = {{ e.pilihan.contamination_a }}, C = {{ e.pilihan.contamination_c }}</dd></div>
+    <div class="meta-item"><dt>Kasus lolos terdeteksi</dt><dd>{{ e.pilihan.kasus_lolos_terdeteksi }} / {{ e.jumlah_lolos }} <span class="sub">{{ e.pilihan.aliran_lolos_tertangkap }} dari {{ e.pilihan.aliran_lolos }} aliran</span></dd></div>
+    <div class="meta-item"><dt>Aliran alarm palsu ditandai</dt><dd>{{ e.pilihan.aliran_palsu_ditandai }} / {{ e.pilihan.aliran_palsu }}</dd></div>
+    <div class="meta-item"><dt>Data latih ditandai</dt><dd>{{ e.pilihan.proporsi_latih_ditandai|persen }}</dd></div>
+  </dl>
+</section>
+{% endif %}
+
+<section class="wz-card">
+  <div class="wz-card-head">
+    <h2>Riwayat versi model</h2>
+    <span class="wz-tag">{{ riwayat|length }} versi</span>
+  </div>
+  <div class="wz-inner-table"><table>
+    <thead><tr><th>Versi</th><th>Aktif sejak (WITA)</th><th>Turunan dari</th><th class="kanan">Aliran dinilai</th><th class="kanan">Ditandai</th><th>Keterangan</th></tr></thead>
+    <tbody>{% for r in riwayat %}<tr>
+      <td class="mono">{{ r.versi }}{% if loop.first %} <span class="lencana ok">aktif</span>{% endif %}</td>
+      <td>{{ r.aktif_sejak_us|wita_us }}</td>
+      <td class="mono redup">{{ r.info.induk or '—' }}</td>
+      <td class="kanan">{{ r.aliran|angka }}</td>
+      <td class="kanan">{{ r.ditandai|angka }} <span class="redup">({{ (r.ditandai / r.aliran if r.aliran else 0)|persen }})</span></td>
+      <td class="redup">{{ r.info.alasan or ('pelatihan ulang' if r.info.evaluasi_umpan_balik else 'pelatihan awal') }}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+</section>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,67 @@
+{% extends "dasar.html" %}
+{% block judul %}IP tepercaya{% endblock %}
+{% block isi %}
+{% if pesan %}<p class="galat">{{ pesan }}</p>{% endif %}
+{% if ok %}<p class="berhasil">{{ ok }}</p>{% endif %}
+{% if not siap %}<p class="peringatan">Folder bersama modul deteksi belum ada di server ini; jalankan <code>pasang-deteksi.sh</code> terlebih dahulu.</p>{% endif %}
+
+<div class="panel-grid-2">
+  <section class="panel-kartu">
+    <div class="panel-kepala">
+      <h2>Tambah IP tepercaya</h2>
+      <span class="lencana netral">maks /{{ prefiks[4] }} · /{{ prefiks[6] }}</span>
+    </div>
+    {% if boleh_tepercaya and siap %}
+    <form method="post" class="formulir">
+      <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+      <input type="hidden" name="aksi" value="tambah">
+      <label>IP atau subnet <input name="ip" value="{{ isi.ip }}" required maxlength="64" class="mono"
+        placeholder="mis. 203.0.113.7 atau 203.0.113.0/24" autocomplete="off"></label>
+      <label>Keterangan <input name="ket" value="{{ isi.ket }}" maxlength="120" class="penuh"
+        placeholder="mis. IP kantor, laptop admin"></label>
+      <button type="submit" class="utama">Tambahkan</button>
+    </form>
+    {% elif not boleh_tepercaya %}
+    <p class="redup">Hanya administrator yang dapat mengubah daftar ini.</p>
+    {% endif %}
+  </section>
+
+  <section class="panel-kartu">
+    <div class="panel-kepala">
+      <h2>Cakupan whitelist</h2>
+    </div>
+    <ul class="poin">
+      <li>Lalu lintas baru dari IP/subnet ini <strong>tidak ditandai anomali</strong> dan <strong>tidak memicu notifikasi Telegram</strong>.</li>
+      <li>Aliran tetap dinilai dan dicatat sehingga skornya tetap dapat diperiksa di rincian IP.</li>
+      <li>Berlaku otomatis dalam ≤ 30 detik; masukkan hanya IP yang Anda kendalikan sendiri.</li>
+    </ul>
+  </section>
+</div>
+
+<section class="panel-kartu">
+  <div class="panel-kepala">
+    <h2>Daftar IP tepercaya <span class="lencana netral">{{ entri|length }} entri</span></h2>
+  </div>
+  <div class="gulir"><table>
+    <thead><tr><th>IP / subnet</th><th>Keterangan</th><th class="kanan">Aliran 7 hari</th><th>Ditambahkan</th>{% if boleh_tepercaya and siap %}<th></th>{% endif %}</tr></thead>
+    <tbody>
+    {% for e in entri %}
+      <tr>
+        <td class="mono">{% if '/' not in e.cidr or e.cidr.endswith('/32') or e.cidr.endswith('/128') %}<a href="{{ url_for('deteksi.rincian_ip', ip=e.cidr.split('/')[0]) }}">{{ e.cidr }}</a>{% else %}{{ e.cidr }}{% endif %}</td>
+        <td>{{ e.keterangan or '—' }}</td>
+        <td class="kanan">{{ e.aliran|angka if e.aliran is not none else '—' }}</td>
+        <td class="redup">{{ e.waktu_utc|wita if e.waktu_utc else '—' }}{% if e.oleh %} · {{ e.oleh }}{% endif %}</td>
+        {% if boleh_tepercaya and siap %}
+        <td><form method="post" class="aksi-baris">
+          <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="aksi" value="hapus">
+          <input type="hidden" name="cidr" value="{{ e.cidr }}">
+          <button type="submit" class="bahaya">Hapus</button></form></td>
+        {% endif %}
+      </tr>
+    {% else %}
+      <tr><td colspan="5" class="redup">Belum ada IP tepercaya.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</section>
+{% endblock %}

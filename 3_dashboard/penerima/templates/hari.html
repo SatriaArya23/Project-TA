@@ -1,0 +1,24 @@
+{% extends "dasar.html" %}
+{% block judul %}Rekaman per hari{% endblock %}
+{% block isi %}
+<section class="panel-kartu">
+  <div class="panel-kepala">
+    <h1>Rekaman per hari <span class="lencana netral">{{ total.hari }} hari · {{ total.berkas|angka }} berkas · {{ total.ukuran|ukuran }}</span></h1>
+  </div>
+  {% if semua_inst %}
+  <form method="get" class="saring">
+    <label>Instalasi
+      <select name="instalasi">
+        <option value="">Semua</option>
+        {% for i in semua_inst %}<option {% if request.args.get('instalasi') == i.nama %}selected{% endif %}>{{ i.nama }}</option>{% endfor %}
+      </select>
+    </label>
+    <button type="submit">Saring</button>
+  </form>
+  {% endif %}
+</section>
+
+<section class="panel-kartu">
+  {% include "_tabel_hari.html" with context %}
+</section>
+{% endblock %}

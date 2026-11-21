@@ -1,0 +1,31 @@
+<div class="gulir">
+<table>
+  <thead><tr>
+    <th>Tanggal (WITA)</th>{% if semua_inst or tampil_inst %}<th>Instalasi</th>{% endif %}
+    <th class="kanan">Jam terekam</th><th class="kanan">Paket</th>
+    <th class="kanan">Percobaan koneksi</th><th class="kanan">Ke SSH (22)</th>
+    <th class="kanan">IP luar</th><th>Port terbanyak</th><th class="kanan">Ukuran</th><th></th>
+  </tr></thead>
+  <tbody>
+  {% for h in hari %}
+    <tr>
+      <td><strong>{{ h.tanggal|tanggal }}</strong></td>
+      {% if semua_inst or tampil_inst %}<td>{{ h.instalasi }}</td>{% endif %}
+      <td class="kanan">{{ h.berkas }}<span class="redup">/24</span></td>
+      <td class="kanan">{{ h.paket|angka }}</td>
+      <td class="kanan">{{ h.syn_masuk|angka }}</td>
+      <td class="kanan">{{ h.syn_ssh|angka }}</td>
+      <td class="kanan">{{ h.ip_luar|angka }}</td>
+      <td class="mono redup">{% for p, n in h.port %}{{ p }}{% if not loop.last %}, {% endif %}{% else %}—{% endfor %}</td>
+      <td class="kanan">{{ h.ukuran|ukuran }}</td>
+      <td class="aksi">
+        <a href="{{ url_for('web.berkas', tanggal=h.tanggal.isoformat(), instalasi=h.instalasi) }}">rincian per jam</a>
+        <a href="{{ url_for('web.unduh_hari', instalasi=h.instalasi, tanggal=h.tanggal.isoformat()) }}">unduh 1 hari</a>
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="10" class="redup">Belum ada rekaman.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>

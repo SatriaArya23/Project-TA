@@ -1,0 +1,58 @@
+{% extends "dasar.html" %}
+{% block judul %}Umpan balik{% endblock %}
+{% block isi %}
+<ol class="alur-ringkas">
+  <li><strong>Laporan</strong> IP &amp; rentang</li>
+  <li><strong>Periksa ulang</strong> batas aman A ≤ {{ batas.A }}, C ≤ {{ batas.C }}</li>
+  <li><strong>Hasil</strong> usulan ambang atau pelatihan ulang</li>
+</ol>
+
+{% if boleh_lapor %}
+<section class="panel-kartu">
+  <div class="panel-kepala">
+    <h2>Laporan baru</h2>
+  </div>
+  {% if pesan %}<p class="galat">{{ pesan }}</p>{% endif %}
+  <form method="post" class="formulir">
+    <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+    <fieldset class="pilihan">
+      <label><input type="radio" name="jenis" value="lolos" {% if isi.jenis != 'palsu' %}checked{% endif %}>
+        Serangan lolos <small class="redup">(tidak ditandai)</small></label>
+      <label><input type="radio" name="jenis" value="palsu" {% if isi.jenis == 'palsu' %}checked{% endif %}>
+        Alarm palsu <small class="redup">(lalu lintas normal)</small></label>
+    </fieldset>
+    <div class="baris">
+      <label>IP sumber <input name="ip" value="{{ isi.ip }}" required placeholder="mis. 203.0.113.7" size="26"></label>
+      <label>Mulai (WITA) <input type="datetime-local" name="mulai" value="{{ isi.mulai }}" required></label>
+      <label>Sampai (WITA) <input type="datetime-local" name="akhir" value="{{ isi.akhir }}" required></label>
+    </div>
+    <label>Keterangan <input name="ket" value="{{ isi.ket }}" maxlength="500" class="penuh"
+      placeholder="mis. simulasi brute force SSH lambat"></label>
+    <button type="submit" class="utama sedang">Kirim &amp; periksa ulang</button>
+  </form>
+</section>
+{% endif %}
+
+<section class="panel-kartu">
+  <div class="panel-kepala">
+    <h2>Daftar laporan <span class="lencana netral">{{ rows|length }}</span></h2>
+    {% if boleh_putuskan and antre %}<a class="tombol" href="{{ url_for('deteksi.ekspor_kasus') }}">Unduh {{ antre }} kasus pelatihan ulang (JSON)</a>{% endif %}
+  </div>
+  <div class="gulir"><table>
+    <thead><tr><th>#</th><th>Dibuat (WITA)</th><th>Jenis</th><th>IP sumber</th><th>Rentang kejadian (WITA)</th><th>Status</th><th>Pelapor</th></tr></thead>
+    <tbody>
+    {% for r in rows %}<tr>
+      <td><a href="{{ url_for('deteksi.rincian_umpan_balik', ub_id=r.id) }}">#{{ r.id }}</a></td>
+      <td>{{ r.dibuat_utc|wita }}</td>
+      <td>{{ 'Serangan lolos' if r.jenis == 'lolos' else 'Alarm palsu' }}</td>
+      <td class="mono">{{ r.src_ip }}</td>
+      <td>{{ r.mulai_us|wita_us }} – {{ r.akhir_us|wita_us }}</td>
+      <td><span class="lencana status-{{ r.status }}">{{ r.status|teks_status }}</span></td>
+      <td class="redup">{{ r.pelapor }}</td>
+    </tr>{% else %}
+      <tr><td colspan="7" class="redup">Belum ada laporan.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</section>
+{% endblock %}

@@ -1,0 +1,114 @@
+{% extends "dasar.html" %}
+{% from "_grafik.html" import batang %}
+{% block judul %}{{ ip }}{% endblock %}
+{% block alat %}
+{% set sub = 'ditandai' %}{% include "deteksi/_sub_anomali.html" %}
+{% include "deteksi/_cari_ip.html" %}
+{% endblock %}
+{% block isi %}
+<div class="model-kepala">
+  <h2 class="mono">{{ ip }}{% if tepercaya %} <span class="lencana ok">tepercaya</span>{% endif %}</h2>
+  <div class="aksi-bar-atas">
+    {% if tepercaya %}
+    <span class="redup kecil">{{ tepercaya.cidr }}{% if tepercaya.keterangan %} · {{ tepercaya.keterangan }}{% endif %}</span>
+    <a class="tombol" href="{{ url_for('deteksi.tepercaya') }}">Kelola tepercaya</a>
+    {% elif boleh_tepercaya %}
+    <a class="tombol" href="{{ url_for('deteksi.tepercaya', ip=ip) }}">Tandai tepercaya</a>
+    {% endif %}
+    {% if boleh_lapor %}
+    <a class="tombol" href="{{ url_for('deteksi.umpan_balik', jenis='lolos', ip=ip, mulai=isi_mulai, akhir=isi_akhir) }}">Laporkan serangan lolos</a>
+    <a class="tombol" href="{{ url_for('deteksi.umpan_balik', jenis='palsu', ip=ip, mulai=isi_mulai, akhir=isi_akhir) }}">Tandai alarm palsu</a>
+    {% endif %}
+  </div>
+</div>
+
+<dl class="wz-strip">
+  <div class="wz-strip-item">
+    <dt>Aliran tercatat</dt>
+    <dd>{{ r.aliran|angka }}</dd>
+  </div>
+  <div class="wz-strip-item">
+    <dt>Ditandai anomali</dt>
+    <dd>{{ (r.ditandai or 0)|angka }} <span class="redup">({{ ((r.ditandai or 0) / r.aliran)|persen(1) }})</span></dd>
+  </div>
+  <div class="wz-strip-item">
+    <dt>Port tujuan</dt>
+    <dd>{{ r.port|angka }}</dd>
+  </div>
+  <div class="wz-strip-item">
+    <dt>Pertama terlihat</dt>
+    <dd>{{ r.awal|wita_us }}</dd>
+  </div>
+  <div class="wz-strip-item">
+    <dt>Terakhir terlihat</dt>
+    <dd>{{ r.akhir|wita_us }}</dd>
+  </div>
+  {% for s in skor %}
+  <div class="wz-strip-item">
+    <dt>Skor tertinggi Model {{ s.model }}</dt>
+    <dd class="mono">{{ s.skor|desimal(3) }} <span class="redup">/ {{ s.ambang|desimal(3) }} ({{ s.persentil|persen(2) }})</span></dd>
+  </div>
+  {% endfor %}
+</dl>
+
+<div class="wz-grid-2">
+  <section class="wz-card">
+    <div class="wz-card-head">
+      <h2>Port tujuan terbanyak</h2>
+    </div>
+    <div class="wz-inner-table"><table>
+      <thead><tr><th>Port</th><th class="kanan">Aliran</th><th class="kanan">Ditandai</th></tr></thead>
+      <tbody>{% for p in port %}<tr><td class="mono">{{ p.dst_port }}</td><td class="kanan">{{ p.n|angka }}</td><td class="kanan">{{ (p.ditandai or 0)|angka }}</td></tr>{% endfor %}</tbody>
+    </table></div>
+  </section>
+
+  <section class="wz-card">
+    <div class="wz-card-head">
+      <h2>Riwayat umpan balik</h2>
+    </div>
+    {% for u in ub %}
+      <p><a href="{{ url_for('deteksi.rincian_umpan_balik', ub_id=u.id) }}">#{{ u.id }}</a>
+        {{ 'serangan lolos' if u.jenis == 'lolos' else 'alarm palsu' }} · <span class="lencana status-{{ u.status }}">{{ u.status|teks_status }}</span></p>
+    {% else %}
+      <p class="redup">Belum ada laporan untuk IP ini.</p>
+    {% endfor %}
+  </section>
+</div>
+
+<section class="wz-card">
+  <div class="wz-card-head">
+    <h2>Aktivitas per jam <span class="redup kecil">48 jam terakhir · WITA</span></h2>
+  </div>
+  <div class="wz-inner">
+    <h3><span class="kunci s1"></span>Aliran dari IP ini</h3>
+    {{ batang(g_aliran, "Aliran per jam") }}
+    <h3><span class="kunci s2"></span>Aliran ditandai anomali</h3>
+    {{ batang(g_anomali, "Anomali per jam", "anomali") }}
+  </div>
+</section>
+
+<section class="wz-card">
+  <div class="wz-card-head">
+    <h2>Anomali dari IP ini <span class="wz-tag">50 terbaru</span></h2>
+  </div>
+  {% set rows = anom %}
+  {% include "deteksi/_tabel_anomali.html" %}
+</section>
+
+{% if notif %}
+<section class="wz-card">
+  <div class="wz-card-head">
+    <h2>Notifikasi Telegram</h2>
+  </div>
+  <div class="gulir"><table>
+    <thead><tr><th>Dikirim (WITA)</th><th>Status</th><th class="kanan">Latensi</th><th>Keterangan</th></tr></thead>
+    <tbody>{% for n in notif %}<tr>
+      <td>{{ n.waktu_kirim_us|wita_us }}</td>
+      <td>{% if n.berhasil %}<span class="lencana ok">terkirim</span>{% else %}<span class="lencana mati">gagal</span>{% endif %}</td>
+      <td class="kanan">{% if n.waktu_terima_us and n.waktu_log_us %}{{ '%.2f'|format((n.waktu_terima_us - n.waktu_log_us) / 1e6)|replace('.', ',') }} s{% else %}—{% endif %}</td>
+      <td class="redup">{{ n.keterangan or '' }}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+</section>
+{% endif %}
+{% endblock %}

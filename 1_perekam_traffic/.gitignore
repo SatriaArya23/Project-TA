@@ -1,0 +1,16 @@
+# Jangan pernah mengunggah token, kredensial, atau data rekaman ke repositori
+token
+token*.txt
+*.token
+*.pem
+*.key
+*.conf
+config.env
+*.pcap
+*.pcap.gz
+*.pcapng
+audit_log.csv
+__pycache__/
+
+# Catatan pribadi peneliti, bukan untuk pihak server
+PANDUAN_SATRIA.md

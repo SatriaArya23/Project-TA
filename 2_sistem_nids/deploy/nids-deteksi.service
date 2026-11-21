@@ -1,0 +1,36 @@
+[Unit]
+Description=NIDS deteksi real-time Isolation Forest A+C (penelitian TA)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nids
+Group=nids
+EnvironmentFile=/etc/nids-deteksi/config.env
+EnvironmentFile=-/etc/nids-deteksi/rahasia.env
+ExecStart=/opt/nids-deteksi/venv/bin/python /opt/nids-deteksi/deteksi.py langsung \
+    --model /etc/nids-deteksi/model.joblib --log /var/lib/nids-deteksi/deteksi.db \
+    --antarmuka ${ANTARMUKA} --nama-server ${NAMA_SERVER} --jeda-notifikasi ${JEDA_NOTIFIKASI} --min-aliran-notifikasi ${MIN_ALIRAN_NOTIF}
+Restart=on-failure
+RestartSec=10
+# Log dapat dibaca grup nids (dashboard ta-nids-server membacanya dalam mode baca-saja)
+UMask=0027
+
+# Tanpa root: hanya izin menangkap paket yang diberikan ke proses (dan tcpdump anaknya)
+AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
+CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/var/lib/nids-deteksi
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+Nice=5
+
+[Install]
+WantedBy=multi-user.target

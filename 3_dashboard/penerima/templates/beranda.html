@@ -1,0 +1,57 @@
+{% extends "dasar.html" %}
+{% from "_grafik.html" import batang %}
+{% block judul %}Rekaman terkini{% endblock %}
+{% block isi %}
+<div class="grid">
+{% for r in ringkasan %}
+  <section class="panel-kartu">
+    <div class="panel-kepala">
+      <h2>{{ r.keterangan or r.nama }}</h2>
+      {% if not r.aktif %}<span class="lencana mati">nonaktif</span>
+      {% elif not r.terakhir %}<span class="lencana">menunggu kiriman pertama</span>
+      {% elif r.terakhir|macet %}<span class="lencana mati">tidak ada kiriman {{ r.terakhir|lalu }}</span>
+      {% else %}<span class="lencana ok">aktif merekam</span>{% endif %}
+    </div>
+    <p class="redup mono">{{ r.nama }}</p>
+    {% if r.terakhir %}
+    <dl class="detail">
+      <dt>Rekaman terbaru</dt><dd>mulai {{ r.nama_terbaru|direkam }} WITA</dd>
+      <dt>Kiriman terakhir</dt><dd>{{ r.terakhir|wita }} WITA <span class="redup">({{ r.terakhir|lalu }})</span></dd>
+      <dt>Kiriman pertama</dt><dd>{{ r.pertama|wita }} WITA</dd>
+    </dl>
+    {% if r.terakhir|macet and r.aktif %}
+    <p class="peringatan">Periksa perekam: <code>sudo bash /opt/traffic-recorder/bin/cek-status.sh</code></p>
+    {% endif %}
+    {% else %}
+    <p class="redup">Belum ada berkas.</p>
+    {% endif %}
+  </section>
+{% endfor %}
+</div>
+
+<section class="panel-kartu">
+  <div class="panel-kepala">
+    <h2>Lalu lintas yang terekam</h2>
+  </div>
+  <dl class="angka lima">
+    <div><dt>Hari terekam</dt><dd>{{ total.hari }}</dd></div>
+    <div><dt>Berkas (per jam)</dt><dd>{{ total.berkas|angka }}</dd></div>
+    <div><dt>Paket</dt><dd>{{ total.paket|angka }}</dd></div>
+    <div><dt>Percobaan koneksi dari luar</dt><dd>{{ total.syn_masuk|angka }}</dd></div>
+    <div><dt>Ke port SSH (22)</dt><dd>{{ total.syn_ssh|angka }}</dd></div>
+  </dl>
+  <h3>Percobaan koneksi dari luar per hari <span class="redup">(14 hari terakhir)</span></h3>
+  {{ batang(g_hari, "Percobaan koneksi dari luar per hari") }}
+  <h3>Percobaan koneksi dari luar per jam <span class="redup">(48 jam terakhir, WITA)</span></h3>
+  {{ batang(g_jam, "Percobaan koneksi dari luar per jam") }}
+</section>
+
+<section class="panel-kartu">
+  <div class="panel-kepala">
+    <h2>7 hari terakhir</h2>
+    <a class="kecil" href="{{ url_for('web.berkas') }}">Lihat semua hari →</a>
+  </div>
+  {% set tampil_inst = ringkasan|length > 1 %}
+  {% include "_tabel_hari.html" with context %}
+</section>
+{% endblock %}

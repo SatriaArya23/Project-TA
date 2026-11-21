@@ -1,0 +1,28 @@
+<div class="gulir">
+<table>
+  <thead><tr>
+    <th>Waktu (WITA)</th><th>IP sumber</th><th class="kanan">Port tujuan</th><th>Proto</th><th>Model</th>
+    <th class="kanan">Skor A / ambang</th><th class="kanan">Skor C / ambang</th>
+    <th class="kanan">Aliran IP (jendela)</th><th class="kanan">Port unik</th><th class="kanan">Gagal</th><th class="kanan">Ke SSH</th>
+  </tr></thead>
+  <tbody>
+  {% for a in rows %}
+    <tr>
+      <td class="mono redup">{{ a.waktu_selesai_us|wita_us }}</td>
+      <td class="mono"><a href="{{ url_for('deteksi.rincian_ip', ip=a.src_ip) }}">{{ a.src_ip }}</a></td>
+      <td class="kanan">{{ a.dst_port }}</td>
+      <td>{{ {6: 'TCP', 17: 'UDP'}.get(a.protokol, a.protokol) }}</td>
+      <td><span class="lencana model">{{ a.oleh }}</span></td>
+      <td class="kanan mono {% if 'A' in a.oleh %}tebal{% endif %}">{{ a.skor_a|desimal(3) }} / {{ a.ambang_a|desimal(3) }}</td>
+      <td class="kanan mono {% if 'C' in a.oleh %}tebal{% endif %}">{{ a.skor_c|desimal(3) }} / {{ a.ambang_c|desimal(3) }}</td>
+      <td class="kanan">{{ a.agg_ip_aliran|angka }}</td>
+      <td class="kanan">{{ a.agg_ip_port_unik|angka }}</td>
+      <td class="kanan">{{ a.agg_ip_rasio_gagal|persen(0) }}</td>
+      <td class="kanan">{{ a.agg_ip_aliran_ssh|angka }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="11" class="redup">Tidak ada anomali.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>

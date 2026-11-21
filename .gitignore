@@ -1,0 +1,50 @@
+# Python & test caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
+venv/
+.venv/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Secrets, credentials & environment files
+.env
+*.env
+!*.env.example
+rahasia.env
+*.pem
+*.key
+*.jwt
+token
+token*.txt
+_Rahasia/
+PANDUAN_SATRIA.md
+
+# Databases, trained models & raw traffic / datasets
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.joblib
+*.pcap
+*.pcap.gz
+*.parquet
+*.csv.gz
+05_Data_Eksperimen/
+
+# Optional private/company branding assets (not published to public repo)
+3_dashboard/penerima/static/logo-hotdog.png
+3_dashboard/penerima/static/foto-anemon.jpg
+3_dashboard/penerima/static/foto-karang.jpg
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

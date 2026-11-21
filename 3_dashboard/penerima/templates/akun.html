@@ -1,0 +1,37 @@
+{% extends "dasar.html" %}
+{% block judul %}Akun{% endblock %}
+{% block isi %}
+{% if p.wajib_ganti_sandi %}
+<p class="peringatan">Anda masih memakai password sementara. Ganti password untuk melanjutkan.</p>
+{% endif %}
+{% if ok %}<p class="berhasil">{{ ok }}</p>{% endif %}
+<div class="panel-grid-2">
+  <section class="panel-kartu">
+    <div class="panel-kepala">
+      <h2>Akun saya</h2>
+    </div>
+    <dl class="detail">
+      <dt>Username</dt><dd class="mono">{{ p.username }}</dd>
+      {% if p.nama %}<dt>Nama</dt><dd>{{ p.nama }}</dd>{% endif %}
+      <dt>Peran</dt><dd><span class="lencana peran-{{ p.peran }}">{{ nama_peran.get(p.peran, p.peran) }}</span>
+        <span class="redup kecil">{{ ket_peran.get(p.peran, '') }}</span></dd>
+      <dt>Dibuat</dt><dd>{{ p.dibuat_utc|wita }}{% if p.dibuat_oleh %} · {{ p.dibuat_oleh }}{% endif %}</dd>
+    </dl>
+  </section>
+
+  <section class="panel-kartu">
+    <div class="panel-kepala">
+      <h2>Ganti password</h2>
+    </div>
+    {% if pesan %}<p class="galat">{{ pesan }}</p>{% endif %}
+    <form method="post" class="formulir" autocomplete="off">
+      <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+      <label>Password sekarang <input type="password" name="sandi_lama" required autocomplete="current-password"></label>
+      <label>Password baru <span class="redup">(minimal {{ min_sandi }} karakter)</span>
+        <input type="password" name="sandi_baru" required minlength="{{ min_sandi }}" autocomplete="new-password"></label>
+      <label>Ulangi password baru <input type="password" name="ulang" required minlength="{{ min_sandi }}" autocomplete="new-password"></label>
+      <button type="submit" class="utama">Simpan password</button>
+    </form>
+  </section>
+</div>
+{% endblock %}

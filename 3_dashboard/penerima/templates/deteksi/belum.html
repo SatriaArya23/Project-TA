@@ -1,0 +1,12 @@
+{% extends "dasar.html" %}
+{% block judul %}Deteksi{% endblock %}
+{% block isi %}
+<h1>Deteksi anomali</h1>
+<section class="kartu">
+  <h2>Modul deteksi belum terhubung</h2>
+  <p>Log modul deteksi tidak ditemukan atau belum bisa dibaca:</p>
+  <p class="mono">{{ path or "(PENERIMA_DETEKSI_DB belum diatur)" }}</p>
+  <p class="catatan">Pasang modul deteksi di server ini (<code>nids-deteksi/deploy/pasang-deteksi.sh</code>).
+  Skrip itu memberi layanan dashboard izin baca ke log deteksi dan mengisi <code>PENERIMA_DETEKSI_DB</code>.</p>
+</section>
+{% endblock %}

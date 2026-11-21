@@ -1,0 +1,106 @@
+{% extends "dasar.html" %}
+{% block judul %}Umpan balik #{{ r.id }}{% endblock %}
+{% block isi %}
+<div class="model-kepala">
+  <h1>Umpan balik #{{ r.id }} <span class="lencana status-{{ r.status }}">{{ r.status|teks_status }}</span></h1>
+  <a class="tombol" href="{{ url_for('deteksi.umpan_balik') }}">← Semua laporan</a>
+</div>
+
+<section class="panel-kartu langkah">
+  <div class="panel-kepala">
+    <h2><span class="nomor">1</span> Laporan</h2>
+  </div>
+  <dl class="meta-grid">
+    <div class="meta-item"><dt>Jenis</dt><dd>{{ 'Serangan lolos (tidak terdeteksi)' if r.jenis == 'lolos' else 'Alarm palsu' }}</dd></div>
+    <div class="meta-item"><dt>IP sumber</dt><dd class="mono"><a href="{{ url_for('deteksi.rincian_ip', ip=r.src_ip) }}">{{ r.src_ip }}</a></dd></div>
+    <div class="meta-item"><dt>Rentang kejadian</dt><dd>{{ r.mulai_us|wita_us }} – {{ r.akhir_us|wita_us }} WITA</dd></div>
+    <div class="meta-item"><dt>Dilaporkan</dt><dd>{{ r.dibuat_utc|wita }} WITA · {{ r.pelapor }}</dd></div>
+    {% if r.keterangan %}<div class="meta-item lebar"><dt>Keterangan</dt><dd>{{ r.keterangan }}</dd></div>{% endif %}
+  </dl>
+</section>
+
+{% if h %}
+<section class="panel-kartu langkah">
+  <div class="panel-kepala">
+    <h2><span class="nomor">2</span> Periksa ulang di modul deteksi</h2>
+    <span class="redup kecil">{{ r.diperiksa_utc|wita }} WITA</span>
+  </div>
+  <dl class="meta-grid">
+    <div class="meta-item"><dt>Aliran dari IP</dt><dd>{{ h.aliran|angka }} aliran{% if h.port_teratas %} · port {% for p, n in h.port_teratas %}{{ p }} ({{ n|angka }}){% if not loop.last %}, {% endif %}{% endfor %}{% endif %}</dd></div>
+    <div class="meta-item"><dt>Sudah ditandai</dt><dd>{{ h.ditandai|angka }} aliran</dd></div>
+  </dl>
+  {% if h.kandidat %}
+  <h3>Penilaian ulang dengan ambang yang diturunkan</h3>
+  <div class="gulir"><table>
+    <thead><tr><th>Model</th><th>Versi</th><th class="kanan">Skor tertinggi</th><th class="kanan">Ambang sekarang</th>
+      <th class="kanan">Selisih</th><th class="kanan">Ambang perlu</th><th class="kanan">Contamination perlu</th><th>Aman?</th>
+      <th class="kanan">Tambahan / hari</th></tr></thead>
+    <tbody>{% for k in h.kandidat %}<tr {% if h.usulan and k.model == h.usulan.model and k.model_id == h.usulan.model_id %}class="terpilih"{% endif %}>
+      <td>{{ k.model }}</td><td class="mono redup">{{ k.versi }}</td>
+      <td class="kanan mono">{{ k.skor_maks|desimal(8) }}</td>
+      <td class="kanan mono">{{ k.ambang_sekarang|desimal(8) }}{% if k.contamination_sekarang %} <span class="redup">({{ k.contamination_sekarang|persen(1) }})</span>{% endif %}</td>
+      {% if k.catatan %}<td colspan="5" class="redup">{{ k.catatan }}</td>{% else %}
+      <td class="kanan mono">{{ (k.ambang_sekarang - k.skor_maks)|desimal(8) }}</td>
+      <td class="kanan mono">{{ k.ambang_baru|desimal(8) }}</td>
+      <td class="kanan">{{ k.contamination_baru|persen(3) }} <span class="redup">/ maks {{ h.batas_contamination[k.model]|persen(0) }}</span></td>
+      <td>{% if k.dalam_batas %}<span class="lencana ok">ya</span>{% else %}<span class="lencana mati">tidak</span>{% endif %}</td>
+      <td class="kanan">{{ '%.1f'|format(k.tambahan_aliran_per_hari)|replace('.', ',') }} aliran · {{ '%.1f'|format(k.tambahan_ip_per_hari)|replace('.', ',') }} IP</td>
+      {% endif %}
+    </tr>{% endfor %}</tbody>
+  </table></div>
+  {% endif %}
+</section>
+
+<section class="panel-kartu langkah">
+  <div class="panel-kepala">
+    <h2><span class="nomor">3</span> Hasil</h2>
+  </div>
+  {% if h.status == 'sudah_terdeteksi' %}
+    <p>Sudah terdeteksi: model saat ini menandai {{ h.ditandai|angka }} aliran (acuan {{ h.versi_acuan|join(', ') }}).</p>
+  {% elif h.status == 'tidak_ada_aliran' %}
+    <p>Tidak ada aliran dari IP ini pada rentang waktu tersebut.</p>
+  {% elif h.status == 'tidak_ada_alarm' %}
+    <p>Tidak ada aliran dari IP ini yang ditandai anomali pada rentang tersebut.</p>
+  {% elif h.status == 'terdeteksi_penyesuaian' %}
+    {% set u = h.usulan %}
+    <p><strong>Terdeteksi setelah penyesuaian ambang.</strong> Turunkan ambang Model {{ u.model }}:
+    <span class="mono">{{ u.ambang_sekarang|desimal(8) }}</span> → <span class="mono">{{ u.ambang_baru|desimal(8) }}</span>
+    (contamination {{ u.contamination_sekarang|persen(3) if u.contamination_sekarang is not none else '—' }} → {{ u.contamination_baru|persen(3) }}).
+    Tertangkap {{ u.tertangkap|angka }} aliran; perkiraan tambahan {{ '%.1f'|format(u.tambahan_aliran_per_hari)|replace('.', ',') }} aliran / {{ '%.1f'|format(u.tambahan_ip_per_hari)|replace('.', ',') }} IP per hari.</p>
+    <pre class="perintah">sudo -u nids /opt/nids-deteksi/venv/bin/python /opt/nids-deteksi/ubah_ambang.py \
+  --model /etc/nids-deteksi/model.joblib --keluar /tmp/model_baru.joblib \
+  --ambang-{{ u.model|lower }} {{ '%.8f'|format(u.ambang_baru) }} --alasan "umpan balik #{{ r.id }}"
+sudo install -m 640 -o root -g nids /tmp/model_baru.joblib /etc/nids-deteksi/model.joblib
+sudo systemctl restart nids-deteksi</pre>
+  {% elif h.status == 'pelatihan_ulang' %}
+    {% if r.jenis == 'palsu' %}
+    <p><strong>Masuk antrean pelatihan ulang.</strong> {{ h.ditandai|angka }} aliran ditandai; pola akan dipelajari sebagai lalu lintas normal saat pelatihan ulang.</p>
+    {% else %}
+    <p><strong>Masuk antrean pelatihan ulang.</strong> Tetap tidak terdeteksi dalam batas aman contamination.</p>
+    {% endif %}
+    <p class="catatan">Jalankan di laptop: unduh kasus JSON → <code>latih_model.py fitur.parquet --keluar model_baru.joblib --umpan-balik kasus_pelatihan_ulang.json</code>.</p>
+  {% elif h.status == 'selesai' %}
+    <p>Selesai.</p>
+  {% endif %}
+  {% if r.status == 'selesai' %}
+    <p><span class="lencana ok">selesai</span> {{ r.selesai_utc|wita }} WITA{% if r.catatan_selesai %} · {{ r.catatan_selesai }}{% endif %}</p>
+  {% endif %}
+
+  {% if boleh_lapor %}
+  <div class="aksi-form">
+    <form method="post" action="{{ url_for('deteksi.periksa_lagi', ub_id=r.id) }}">
+      <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+      <button type="submit">Periksa ulang lagi</button>
+    </form>
+    {% if r.status != 'selesai' and boleh_putuskan %}
+    <form method="post" action="{{ url_for('deteksi.tandai_selesai', ub_id=r.id) }}" class="baris">
+      <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+      <input name="catatan" maxlength="300" placeholder="mis. diterapkan pada model m20261105-…" size="40">
+      <button type="submit">Tandai selesai</button>
+    </form>
+    {% endif %}
+  </div>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}
