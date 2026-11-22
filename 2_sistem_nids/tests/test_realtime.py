@@ -164,7 +164,7 @@ def test_pesan_telegram():
     f = {"Source IP": "2001:db8:1:2::9", "Destination Port": 443, "agg_ip_aliran": 3, "agg_ip_port_unik": 2,
          "agg_ip_rasio_gagal": 0.5, "agg_ip_aliran_ssh": 0, "_mulai_us": 1_761_000_000_000_000}
     t = susun_pesan("2001:db8:1:2::9", [(1, f, (0.7, 0.1, "A"))], 0, "srv <uji>", 300)
-    assert "<code>2001:db8:1:2::/64</code>" in t and "Model A" in t and "<b>srv &lt;uji&gt;</b>" in t
+    assert "<code>2001:db8:1:2::/64</code>" in t and "IF-Flow" in t and "<b>srv &lt;uji&gt;</b>" in t
     assert "50% ditolak" in t and "Anomali SEDANG" in t and "Pola koneksi tidak biasa" in t
 
 

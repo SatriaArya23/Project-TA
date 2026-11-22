@@ -121,6 +121,7 @@ HAK = {
     "putuskan": ("admin",),                 # tandai laporan selesai, unduh kasus pelatihan ulang
     "kelola_pengguna": ("admin",),
     "kelola_tepercaya": ("admin",),         # daftar IP tepercaya (memengaruhi deteksi)
+    "kelola_blokir": ("admin",),            # blokir / buka blokir IP manual di firewall
 }
 
 

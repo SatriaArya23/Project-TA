@@ -1,0 +1,11 @@
+[Unit]
+Description=Bersihkan blokir IP sementara yang kedaluwarsa tiap 1 menit
+
+[Timer]
+OnBootSec=20s
+OnUnitActiveSec=60s
+AccuracySec=5s
+Unit=nids-blokir.service
+
+[Install]
+WantedBy=timers.target

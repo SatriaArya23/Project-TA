@@ -30,6 +30,9 @@ def create_app(uji=None):
         DETEKSI_DB=os.environ.get("PENERIMA_DETEKSI_DB", "/var/lib/nids-deteksi/deteksi.db"),
         # daftar IP tepercaya bersama modul deteksi (ditulis halaman IP tepercaya, khusus administrator)
         TEPERCAYA_PATH=os.environ.get("PENERIMA_TEPERCAYA", "/var/lib/nids-bersama/ip_tepercaya.json"),
+        # daftar IP diblokir bersama layanan firewall nids-blokir (ditulis admin lewat dashboard atau Telegram)
+        BLOKIR_PATH=os.environ.get("PENERIMA_BLOKIR", "/var/lib/nids-bersama/ip_diblokir.json"),
+        BLOKIR_STATUS_PATH=os.environ.get("PENERIMA_BLOKIR_STATUS", "/var/lib/nids-bersama/ip_diblokir_status.json"),
     )
     if uji:
         app.config.update(uji)

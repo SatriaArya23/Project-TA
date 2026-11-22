@@ -102,7 +102,7 @@ def test_hampir_anomali_dan_cari_ip(c):
     r = c.get("/deteksi/anomali?cari=" + LAMBAT)
     assert r.status_code == 302 and r.headers["Location"].endswith("/deteksi/ip/" + LAMBAT)
     h = c.get("/deteksi/ip/" + LAMBAT).get_data(as_text=True)
-    assert "Skor tertinggi Model C" in h and "0.500" in h and "Laporkan serangan lolos" in h
+    assert "Skor tertinggi IF-Agg" in h and "0.500" in h and "Laporkan serangan lolos" in h
     assert "belum pernah tercatat" in c.get("/deteksi/anomali?cari=192.0.2.99").get_data(as_text=True)
     assert "bukan alamat IP" in c.get("/deteksi/anomali?cari=halo").get_data(as_text=True)
 
@@ -193,3 +193,50 @@ def test_ip_tepercaya_tanpa_folder_bersama(c, app_dasar, tmp_path):
     app_dasar.config["TEPERCAYA_PATH"] = str(tmp_path / "tidak-ada" / "ip_tepercaya.json")
     h = c.get("/deteksi/tepercaya").get_data(as_text=True)
     assert "belum ada di server ini" in h and 'name="ip"' not in h
+
+
+def test_ip_diblokir(c, app_dasar, tmp_path):
+    folder = tmp_path / "bersama"
+    folder.mkdir(exist_ok=True)
+    app_dasar.config["TEPERCAYA_PATH"] = str(folder / "ip_tepercaya.json")
+    app_dasar.config["BLOKIR_PATH"] = str(folder / "ip_diblokir.json")
+    app_dasar.config["BLOKIR_STATUS_PATH"] = str(folder / "ip_diblokir_status.json")
+
+    from nids import tepercaya as tp
+    tp.tambah(app_dasar.config["TEPERCAYA_PATH"], NYARIS, "admin")
+
+    h = c.get("/deteksi/blokir").get_data(as_text=True)
+    assert "Belum" not in h and "Tidak ada IP yang sedang diblokir" in h and 'style="' not in h
+
+    blokir = lambda ip, dur="1j", ket="", lanjut="": c.post("/deteksi/blokir", data={
+        "csrf": csrf(c, "/deteksi/blokir"), "aksi": "tambah", "ip": ip, "durasi": dur, "ket": ket, "lanjut": lanjut})
+    assert blokir("127.0.0.1").status_code == 400
+    assert blokir("10.0.0.0/8").status_code == 400
+    assert blokir(NYARIS).status_code == 400                         # beririsan dengan IP tepercaya
+
+    r = blokir(PENYERANG, "1j", "port scan")
+    assert r.status_code == 200 and "diblokir" in r.get_data(as_text=True)
+    assert blokir(PENYERANG).status_code == 400                      # duplikat
+
+    # indikator diblokir tampil di rincian IP dan daftar anomali
+    hi = c.get("/deteksi/ip/" + PENYERANG).get_data(as_text=True)
+    assert "diblokir</span>" in hi and "Buka blokir IP" in hi and 'style="' not in hi
+    ha = c.get("/deteksi/anomali").get_data(as_text=True)
+    assert "diblokir</span>" in ha and ">Buka</button>" in ha and 'style="' not in ha
+    assert "BLOKIR_TAMBAH" in c.get("/audit").get_data(as_text=True)
+
+    # blokir/buka dengan redirect cepat dari halaman rincian IP
+    r_buka = c.post("/deteksi/blokir", data={"csrf": csrf(c, "/deteksi/ip/" + PENYERANG), "aksi": "hapus",
+                                             "cidr": PENYERANG + "/32", "lanjut": "/deteksi/ip/" + PENYERANG})
+    assert r_buka.status_code == 302 and r_buka.headers["Location"].endswith("/deteksi/ip/" + PENYERANG)
+    hi2 = c.get("/deteksi/ip/" + PENYERANG).get_data(as_text=True)
+    assert "dibuka" in hi2 and "Blokir IP</button>" in hi2
+    assert "BLOKIR_HAPUS" in c.get("/audit").get_data(as_text=True)
+
+    # pemantau (viewer) tidak dapat memblokir
+    v = app_dasar.test_client()
+    masuk(v, "paktut", "sandi-paktut-123")
+    hv = v.get("/deteksi/blokir").get_data(as_text=True)
+    assert "Hanya administrator" in hv and 'name="ip"' not in hv
+    assert v.post("/deteksi/blokir", data={"csrf": csrf(v, "/deteksi/blokir"), "aksi": "tambah",
+                                           "ip": PENYERANG, "durasi": "1j"}).status_code == 403

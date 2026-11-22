@@ -10,6 +10,8 @@
 </nav>
 {% endblock %}
 {% block isi %}
+{% if ok_pesan %}<p class="berhasil">{{ ok_pesan }}</p>{% endif %}
+{% if galat_pesan %}<p class="galat">{{ galat_pesan }}</p>{% endif %}
 {% if tertinggal %}<p class="peringatan">Data terakhir lebih dari 2 hari yang lalu; angka dihitung mundur dari data terakhir.</p>{% endif %}
 
 {# ---------------------------------------------------------------- Strip Telemetri ala Wazuh #}
@@ -85,7 +87,7 @@
   <section class="wz-card">
     <div class="wz-card-head">
       <h2>Model penanda</h2>
-      <span class="wz-tag">A atau C</span>
+      <span class="wz-tag">IF-Flow atau IF-Agg</span>
     </div>
     {% if donat %}
     <div class="donat-baris">
@@ -136,18 +138,37 @@
 
       <div class="wz-inner-table">
         <table>
-          <thead><tr><th>IP sumber</th><th class="kanan">Anomali</th><th>Model</th><th class="kanan">Port</th><th class="kanan">SSH</th></tr></thead>
+          <thead><tr><th>IP sumber</th><th class="kanan">Anomali</th><th>Model</th><th class="kanan">Port</th><th class="kanan">SSH</th>{% if boleh_blokir and blokir_siap() %}<th></th>{% endif %}</tr></thead>
           <tbody>
-          {% for t in top[:6] %}
+          {% for t in top[:6] %}{% set bk = blokir_ip(t.src_ip) %}
             <tr>
-              <td class="mono"><a href="{{ url_for('deteksi.rincian_ip', ip=t.src_ip) }}">{{ t.src_ip }}</a></td>
+              <td class="mono"><a href="{{ url_for('deteksi.rincian_ip', ip=t.src_ip) }}">{{ t.src_ip }}</a>{% if bk %} <span class="lencana mati">diblokir</span>{% endif %}</td>
               <td class="kanan">{{ t.n|angka }}</td>
-              <td><span class="lencana model">{{ t.oleh }}</span></td>
+              <td><span class="lencana model">{{ t.oleh|nama_model }}</span></td>
               <td class="kanan">{{ t.port_unik|angka }}</td>
               <td class="kanan">{{ t.ssh|angka }}</td>
+              {% if boleh_blokir and blokir_siap() %}
+              <td>
+                <form method="post" action="{{ url_for('deteksi.blokir') }}" class="aksi-kilat">
+                  <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+                  <input type="hidden" name="lanjut" value="{{ request.full_path.rstrip('?') }}">
+                  {% if bk %}
+                  <input type="hidden" name="aksi" value="hapus">
+                  <input type="hidden" name="cidr" value="{{ bk.cidr }}">
+                  <button type="submit">Buka</button>
+                  {% else %}
+                  <input type="hidden" name="aksi" value="tambah">
+                  <input type="hidden" name="ip" value="{{ t.src_ip }}">
+                  <input type="hidden" name="durasi" value="1j">
+                  <input type="hidden" name="ket" value="Blokir cepat dari ringkasan">
+                  <button type="submit" class="bahaya">Blokir 1j</button>
+                  {% endif %}
+                </form>
+              </td>
+              {% endif %}
             </tr>
           {% else %}
-            <tr><td colspan="5" class="redup">Tidak ada anomali dalam {{ nama_rentang }} terakhir.</td></tr>
+            <tr><td colspan="{{ 6 if boleh_blokir and blokir_siap() else 5 }}" class="redup">Tidak ada anomali dalam {{ nama_rentang }} terakhir.</td></tr>
           {% endfor %}
           </tbody>
         </table>

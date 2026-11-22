@@ -127,7 +127,7 @@ def test_jawaban_bot(log_db, tmp_path):
     h = jawab(log_db, "ringkasan", "")
     assert PENYERANG in h and "Pemindaian port" in h and "30 anomali" in h
     assert "<b>%s</b>" % PENYERANG in jawab(log_db, "ip", PENYERANG)
-    assert "Model C" in jawab(log_db, "ip", NYARIS)
+    assert "IF-Agg" in jawab(log_db, "ip", NYARIS)
     assert "belum pernah tercatat" in jawab(log_db, "ip", "192.0.2.99")
     assert "bukan alamat IP" in jawab(log_db, "ip", "<b>x</b>") and "<b>x</b>" not in jawab(log_db, "ip", "<b>x</b>")
     assert "Tulis alamatnya" in jawab(log_db, "ip", "")

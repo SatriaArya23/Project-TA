@@ -20,10 +20,12 @@ import json
 import os
 import sqlite3
 import statistics
+import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import urlsplit
 
-from flask import Blueprint, Response, abort, current_app, g, redirect, render_template, request, url_for
+from flask import Blueprint, Response, abort, current_app, g, redirect, render_template, request, session, url_for
 
 from . import grafik, harian, sistem, statistik, waktu  # noqa: F401  (statistik menyiapkan sys.path untuk nids)
 from .db import catat_audit, koneksi, sekarang
@@ -31,6 +33,7 @@ from .keamanan import boleh, cek_csrf, ip_klien, pengguna_aktif, wajib_hak, waji
 from nids.dugaan import dugaan  # noqa: E402
 from nids.umpan_balik import (BATAS_CONTAMINATION, TEKS_STATUS, ambang_model, hampir_anomali,  # noqa: E402
                               kedekatan, periksa_ulang)
+from nids import blokir as daftar_blokir  # noqa: E402
 from nids import tepercaya as daftar_tepercaya  # noqa: E402
 
 bp = Blueprint("deteksi", __name__, url_prefix="/deteksi")
@@ -186,6 +189,17 @@ def filter_teks_status(s):
     return TEKS_STATUS.get(s, s)
 
 
+NAMA_MODEL = {"A": "IF-Flow", "C": "IF-Agg", "A+C": "Dual-IF"}
+
+
+@bp.app_template_filter("nama_model")
+def filter_nama_model(kode):
+    if not kode:
+        return ""
+    bagian = [NAMA_MODEL.get(x.strip(), x.strip()) for x in str(kode).split(",") if x.strip()]
+    return ", ".join(dict.fromkeys(bagian))
+
+
 def status_bar():
     """Status singkat modul deteksi untuk bilah atas setiap halaman (None bila log belum ada)."""
     db = db_deteksi()
@@ -197,18 +211,67 @@ def status_bar():
         return None
 
 
-@bp.app_context_processor
-def isi_template():
-    return {"boleh_lapor": boleh("lapor"), "boleh_putuskan": boleh("putuskan"),
-            "boleh_tepercaya": boleh("kelola_tepercaya"), "status_bar": status_bar}
-
-
 def entri_tepercaya():
     """Isi daftar IP tepercaya (kosong bila berkas belum ada / tidak terbaca)."""
     try:
         return daftar_tepercaya.baca(current_app.config["TEPERCAYA_PATH"])
     except (OSError, ValueError):
         return []
+
+
+def blokir_siap():
+    path = current_app.config.get("BLOKIR_PATH")
+    if not path:
+        return False
+    folder = os.path.dirname(os.path.abspath(path))
+    return os.path.isdir(folder) and os.access(folder, os.W_OK)
+
+
+def entri_diblokir():
+    """Isi daftar IP diblokir aktif (cached per-request di g)."""
+    if "entri_diblokir" not in g:
+        path = current_app.config.get("BLOKIR_PATH")
+        try:
+            g.entri_diblokir = daftar_blokir.baca(path) if path else []
+        except (OSError, ValueError):
+            g.entri_diblokir = []
+    return g.entri_diblokir
+
+
+def blokir_ip(ip):
+    return daftar_blokir.cocok_dengan(entri_diblokir(), ip)
+
+
+def _kilas():
+    return session.pop("_kilas_ok", None), session.pop("_kilas_galat", None)
+
+
+def _ip_dilindungi(db):
+    hasil = [ip_klien()]
+    if db is not None:
+        try:
+            r = db.execute("SELECT nilai FROM status WHERE kunci = 'server_ip'").fetchone()
+            if r and r[0]:
+                hasil.extend(x.strip() for x in r[0].split(",") if x.strip())
+        except sqlite3.Error:
+            pass
+    try:
+        r = subprocess.run(["ip", "-o", "addr", "show"], capture_output=True, text=True, timeout=3)
+        for baris in r.stdout.splitlines():
+            bagian = baris.split()
+            for i, tok in enumerate(bagian):
+                if tok in ("inet", "inet6") and i + 1 < len(bagian):
+                    hasil.append(bagian[i + 1].split("/")[0])
+    except Exception:
+        pass
+    return hasil
+
+
+@bp.app_context_processor
+def isi_template():
+    return {"boleh_lapor": boleh("lapor"), "boleh_putuskan": boleh("putuskan"),
+            "boleh_tepercaya": boleh("kelola_tepercaya"), "boleh_blokir": boleh("kelola_blokir"),
+            "blokir_siap": blokir_siap, "blokir_ip": blokir_ip, "status_bar": status_bar}
 
 
 # ------------------------------------------------------------------ halaman
@@ -218,8 +281,8 @@ KELOMPOK = [("Pemindaian port", "s1"), ("Brute force SSH", "s2"), ("Banjir konek
 _KE_KELOMPOK = {"Pemindaian port": "Pemindaian port",
                 "Percobaan login SSH berulang (brute force)": "Brute force SSH",
                 "Banjir koneksi (indikasi DoS)": "Banjir koneksi (DoS)"}
-MODEL_PENANDA = [("A", "Model A", "aliran (68 fitur)", "s1"), ("C", "Model C", "perilaku IP (7 fitur)", "s2"),
-                 ("A+C", "A dan C", "kedua model sepakat", "s3")]
+MODEL_PENANDA = [("A", "IF-Flow", "aliran (68 fitur)", "s1"), ("C", "IF-Agg", "perilaku IP (7 fitur)", "s2"),
+                 ("A+C", "Dual-IF", "kedua model sepakat", "s3")]
 
 
 def grafik_garis_jam(db, akhir_us, hari):
@@ -298,12 +361,14 @@ def ringkasan():
     g_aliran, g_anomali = grafik_garis_jam(db, akhir, hari)
     m, info = model_aktif(db)
     terbuka = koneksi().execute("SELECT COUNT(*) FROM umpan_balik WHERE status != 'selesai'").fetchone()[0]
+    ok_pesan, galat_pesan = _kilas()
     return render_template("deteksi/ringkasan.html", s=s, akhir=akhir, n=n, rentang=rentang, nama_rentang=nama_rentang,
                            semua_rentang=RENTANG, kelompok=kelompok, seg=seg, model_penanda=model_penanda,
                            donat=donat, ip_anomali=ip_anomali, notif=notif,
                            lat_median=statistics.median(lat) if lat else None, lat_maks=max(lat) if lat else None,
                            top=top, terbaru=terbaru, g_aliran=g_aliran, g_anomali=g_anomali, model=m, info=info,
-                           terbuka=terbuka, server=sistem.kondisi(), tertinggal=sekarang_us() - akhir > 2 * HARI)
+                           terbuka=terbuka, server=sistem.kondisi(), tertinggal=sekarang_us() - akhir > 2 * HARI,
+                           ok_pesan=ok_pesan, galat_pesan=galat_pesan)
 
 
 def cari_ip(db, teks):
@@ -366,7 +431,9 @@ def anomali():
     total = db.execute("SELECT COUNT(*) FROM anomali" + where, nilai).fetchone()[0]
     rows = db.execute("SELECT * FROM anomali" + where + " ORDER BY waktu_selesai_us DESC LIMIT ? OFFSET ?",
                       nilai + [PER_HALAMAN, (hal - 1) * PER_HALAMAN]).fetchall()
-    return render_template("deteksi/anomali.html", rows=rows, total=total, hal=hal, per=PER_HALAMAN, pesan=pesan,
+    ok_pesan, galat_pesan = _kilas()
+    return render_template("deteksi/anomali.html", rows=rows, total=total, hal=hal, per=PER_HALAMAN,
+                           pesan=pesan or galat_pesan, ok_pesan=ok_pesan,
                            cari=request.args.get("cari", "") if pesan else "",
                            ip=ip or "", oleh=request.args.get("oleh", ""), tanggal=request.args.get("tanggal", ""))
 
@@ -396,9 +463,12 @@ def rincian_ip(ip):
         for s in kedekatan(am, mid, ma, mc):
             if s["model"] not in skor or s["persentil"] > skor[s["model"]]["persentil"]:
                 skor[s["model"]] = s
+    ok_pesan, galat_pesan = _kilas()
     return render_template("deteksi/ip.html", ip=ip, r=r, port=port, anom=anom, notif=notif, g_aliran=g_aliran,
                            g_anomali=g_anomali, ub=ub, skor=[skor[k] for k in ("A", "C") if k in skor],
                            tepercaya=daftar_tepercaya.cocok_dengan(entri_tepercaya(), ip),
+                           diblokir=blokir_ip(ip), durasi_opsi=daftar_blokir.DURASI_OPSI,
+                           ok_pesan=ok_pesan, galat_pesan=galat_pesan,
                            isi_mulai=isi_wita(r["awal"]),
                            isi_akhir=isi_wita(r["akhir"] + 60_000_000))
 
@@ -572,3 +642,76 @@ def tepercaya():
                 pass
     return render_template("deteksi/tepercaya.html", entri=entri, pesan=pesan, ok=ok, isi=isi, siap=siap,
                            prefiks=daftar_tepercaya.PREFIKS_MIN), (400 if pesan else 200)
+
+
+# ------------------------------------------------------------------ IP diblokir (firewall manual)
+def _tujuan_aman(lanjut):
+    if not lanjut or not lanjut.startswith("/deteksi") or lanjut.startswith("//"):
+        return None
+    u = urlsplit(lanjut)
+    return lanjut if not u.scheme and not u.netloc else None
+
+
+@bp.route("/blokir", methods=["GET", "POST"])
+@wajib_login
+def blokir():
+    path = current_app.config.get("BLOKIR_PATH")
+    siap = blokir_siap()
+    pesan = ok = None
+    isi = {"ip": request.args.get("ip", ""), "durasi": request.args.get("durasi", "1j"), "ket": ""}
+    if request.method == "POST":
+        cek_csrf()
+        wajib_hak("kelola_blokir", "Hanya administrator yang dapat memblokir atau membuka blokir IP.")
+        if not siap:
+            abort(503, "Folder bersama modul deteksi belum ada (jalankan pasang-deteksi.sh).")
+        f, p = request.form, pengguna_aktif()
+        lanjut = _tujuan_aman(f.get("lanjut", "").strip())
+        if f.get("aksi") == "hapus":
+            cidr = f.get("cidr", "")
+            dihapus = daftar_blokir.hapus(path, cidr)
+            g.pop("entri_diblokir", None)
+            if dihapus:
+                catat_audit("BLOKIR_HAPUS", aktor=p["username"], ip=ip_klien(), kode=200, ket=dihapus["cidr"])
+                ok = "Blokir %s dibuka. Aturan firewall dicabut dalam beberapa detik." % dihapus["cidr"]
+            else:
+                pesan = "Entri blokir tidak ditemukan atau sudah kedaluwarsa."
+        else:
+            isi = {"ip": f.get("ip", "")[:64], "durasi": f.get("durasi", "permanen")[:16],
+                   "ket": f.get("ket", "")[:120]}
+            try:
+                baru = daftar_blokir.tambah(
+                    path, isi["ip"], durasi=isi["durasi"], keterangan=isi["ket"], oleh=p["username"],
+                    path_tepercaya=current_app.config.get("TEPERCAYA_PATH"),
+                    ip_dilindungi=_ip_dilindungi(db_deteksi()),
+                )
+            except ValueError as e:
+                pesan = str(e)
+            else:
+                g.pop("entri_diblokir", None)
+                catat_audit("BLOKIR_TAMBAH", aktor=p["username"], ip=ip_klien(), kode=200,
+                            ket="%s [%s] (%s)" % (baru["cidr"], baru["durasi_label"], baru["keterangan"] or "-"))
+                ok = "IP %s diblokir (%s). Firewall disinkronkan dalam beberapa detik." % (
+                    baru["cidr"], baru["durasi_label"])
+                isi = {"ip": "", "durasi": "1j", "ket": ""}
+        if lanjut:
+            if ok:
+                session["_kilas_ok"] = ok
+            if pesan:
+                session["_kilas_galat"] = pesan
+            return redirect(lanjut)
+    entri = entri_diblokir()
+    db = db_deteksi()
+    for e in entri:
+        e["aliran"] = None
+        if db is not None:
+            try:
+                n = ipaddress.ip_network(e["cidr"], strict=False)
+                if n.num_addresses == 1:
+                    e["aliran"] = db.execute("SELECT COUNT(*) FROM aliran WHERE src_ip = ? AND waktu_selesai_us >= ?",
+                                             (str(n.network_address), sekarang_us() - 7 * HARI)).fetchone()[0]
+            except ValueError:
+                pass
+    fw_status = daftar_blokir.baca_status(current_app.config.get("BLOKIR_STATUS_PATH"))
+    return render_template("deteksi/blokir.html", entri=entri, pesan=pesan, ok=ok, isi=isi, siap=siap,
+                           durasi_opsi=daftar_blokir.DURASI_OPSI, prefiks=daftar_blokir.PREFIKS_MIN,
+                           fw_status=fw_status), (400 if pesan else 200)

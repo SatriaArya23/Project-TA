@@ -1,23 +1,23 @@
-# 3_dashboard — Server Penerima Rekaman + Dashboard Web (di server: ta-nids-server)
+# 3_dashboard — Server Penerima Rekaman + Dashboard Web ASUNA (ta-nids-server)
 
-Bagian server dari Tugas Akhir *NIDS Berbasis Machine Learning (studi kasus PT Hotdog Water Sport)*.
+Bagian server dari Tugas Akhir *NIDS Berbasis Machine Learning (studi kasus PT Hotdog Water Sport)* dengan antarmuka pemantauan **ASUNA**.
 Server ini menerima berkas rekaman header paket dari perekam
-[`vps-traffic-recorder`](https://github.com/Desa012/vps-traffic-recorder), mencatat setiap pengiriman, dan
-menyediakan akses baca-saja (dashboard + API) bagi perusahaan.
+[`vps-traffic-recorder`](https://github.com/Desa012/vps-traffic-recorder), mencatat setiap pengiriman, menyajikan *dashboard* NIDS (`Dual-IF`: `IF-Flow` dan `IF-Agg`), umpan balik model, serta halaman kelola blokir IP (`nftables`).
 
-Alamat yang terpasang: **https://penerima.example.com**
+Alamat contoh pemasangan: **https://penerima.example.com**
 
 | Fitur | Keterangan |
 |---|---|
 | Unggah | `PUT /api/v1/upload/<nama>`, HTTPS + token per instalasi, verifikasi SHA-256, tolak duplikat (409) |
 | Token | Disimpan sebagai hash SHA-256; bisa dicabut kapan saja; token unggah tidak bisa membaca dan sebaliknya |
-| Audit | Setiap unggahan (diterima/duplikat/ditolak), unduhan, dan login: waktu, IP, nama, ukuran, sha256, kode HTTP |
-| Akses baca | Dashboard login dan API token `read`; akun/token dapat dibatasi ke satu instalasi |
-| Statistik rekaman | Setiap berkas dihitung isinya saat diterima (paket, percobaan koneksi dari luar, ke SSH, IP luar, port tujuan) memakai pembaca pcap dari `2_sistem_nids` |
-| Tampilan per hari | Rekaman per jam ditampilkan satu baris per hari (WITA) + grafik per hari & per jam; **"unduh 1 hari"** menggabungkan rekaman per jam menjadi satu `.pcap.gz` |
-| Deteksi | Halaman **Deteksi**: status modul deteksi, aliran diperiksa & anomali per jam, IP sumber teratas, daftar anomali (saring IP/tanggal/model), rincian per IP, notifikasi Telegram & latensinya, **model aktif + hasil evaluasi + riwayat versi**. Membaca log sistem NIDS (`2_sistem_nids`) dalam mode baca-saja |
-| Umpan balik | Administrator melaporkan **serangan lolos** / **alarm palsu** → sistem **memeriksa ulang di modul deteksi** (skor aliran dinilai ulang dengan ambang yang diturunkan, dalam batas aman) → bila terdeteksi: usulan ambang baru + dampaknya (tambahan alarm/hari); bila tidak: **antrean pelatihan ulang** (unduh `kasus_pelatihan_ulang.json` untuk `latih_model.py --umpan-balik`) |
-| Keamanan | gunicorn sebagai user `tanids` tanpa root (sandbox systemd), hanya di 127.0.0.1; nginx + Let's Encrypt; CSRF, cookie Secure/HttpOnly, batas percobaan login |
+| Audit | Setiap unggahan (diterima/duplikat/ditolak), unduhan, aksi blokir IP, dan login dicatat: waktu, IP, pelaku, rincian |
+| Akses baca | Dashboard login dan API token `read`; hak akses berbasis peran (**Admin / Analis / Pemantau**) |
+| Statistik rekaman | Setiap berkas dihitung isinya saat diterima memakai pembaca pcap dari `2_sistem_nids` |
+| Tampilan per hari | Rekaman per jam ditampilkan per hari (WITA) + grafik; **"unduh 1 hari"** menggabungkan rekaman menjadi satu `.pcap.gz` |
+| Deteksi (`Dual-IF`) | Halaman **Deteksi**: status modul, aliran diperiksa & anomali per jam, IP teratas, saring model (`IF-Flow`, `IF-Agg`, `Dual-IF`), rincian IP, notifikasi Telegram ASUNA & latensinya, serta riwayat versi model |
+| Blokir IP (`nftables`) | Halaman **Blokir IP** (khusus Admin): tambah atau buka blokir IP/CIDR (maksimal `/24` IPv4 dan `/64` IPv6) lewat antrean `ip_diblokir.json` yang dieksekusi layanan `nids-blokir` dengan proteksi *anti-lockout* |
+| Umpan balik | Laporan **serangan lolos** / **alarm palsu** → pemeriksaan kuantil skor di modul deteksi → usulan ambang baru atau antrean `kasus_pelatihan_ulang.json` |
+| Keamanan | `gunicorn` sebagai user `tanids` tanpa *root* (`127.0.0.1`), Nginx + HTTPS Let's Encrypt, CSP ketat, CSRF, batas percobaan login |
 
 ## Struktur
 
@@ -109,9 +109,10 @@ curl -H "Authorization: Bearer $(cat token-api-baca.txt)" "https://penerima.exam
 
 ```bash
 pip install flask pytest
-python -m pytest -q tests        # 41 uji: kontrak unggah, token, lingkup baca, dashboard, CSRF, batas login,
-                                 # statistik rekaman, tampilan per hari, unduh gabungan, ganti nama instalasi,
-                                 # halaman Deteksi, loop umpan balik, hak akses umpan balik
+python -m pytest -q tests        # 49 uji: kontrak unggah, token, lingkup baca, dashboard ASUNA, CSRF,
+                                 # batas login, statistik rekaman, tampilan per hari, unduh gabungan,
+                                 # halaman Deteksi Dual-IF, Blokir IP (nftables) & anti-lockout,
+                                 # loop umpan balik, serta hak akses RBAC
 ```
 
 ## Rencana lanjutan

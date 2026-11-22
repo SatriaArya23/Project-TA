@@ -37,14 +37,21 @@ done
 id nids >/dev/null 2>&1 || useradd --system --home-dir "$DATA" --no-create-home --shell /usr/sbin/nologin nids
 install -d -o nids -g nids -m 750 "$DATA"
 install -d -o root -g nids -m 750 "$ETC"
-# folder bersama: daftar IP tepercaya ditulis dashboard (user tanids, anggota grup nids), dibaca deteksi & bot
+# folder bersama: daftar IP tepercaya & IP diblokir ditulis dashboard (user tanids) & bot (user nids), grup nids
 install -d -o root -g nids -m 2770 /var/lib/nids-bersama
+for f in /var/lib/nids-bersama/ip_diblokir.json; do
+    [[ -f "$f" ]] || printf '{"entri": []}\n' > "$f"
+    chown root:nids "$f"; chmod 660 "$f"
+done
+touch /var/lib/nids-bersama/.ip_diblokir.lock
+chown root:nids /var/lib/nids-bersama/.ip_diblokir.lock
+chmod 660 /var/lib/nids-bersama/.ip_diblokir.lock
 
 install -d -m 755 "$APP"
 rm -rf "$APP/nids"
-cp -r "$SRC/nids" "$SRC/deteksi.py" "$SRC/bot.py" "$SRC/pantau.py" "$SRC/latih_model.py" "$SRC/ubah_ambang.py" "$SRC/requirements.txt" "$APP/"
+cp -r "$SRC/nids" "$SRC/deteksi.py" "$SRC/bot.py" "$SRC/pantau.py" "$SRC/blokir.py" "$SRC/latih_model.py" "$SRC/ubah_ambang.py" "$SRC/requirements.txt" "$APP/"
 find "$APP" -name __pycache__ -prune -exec rm -rf {} +
-chown -R root:root "$APP/nids" "$APP/deteksi.py" "$APP/bot.py" "$APP/pantau.py" "$APP/latih_model.py" "$APP/ubah_ambang.py" "$APP/requirements.txt"
+chown -R root:root "$APP/nids" "$APP/deteksi.py" "$APP/bot.py" "$APP/pantau.py" "$APP/blokir.py" "$APP/latih_model.py" "$APP/ubah_ambang.py" "$APP/requirements.txt"
 [[ -x "$APP/venv/bin/python" ]] || python3 -m venv "$APP/venv"
 "$APP/venv/bin/pip" install -q --disable-pip-version-check -r "$APP/requirements.txt"
 ok "kode & dependensi di $APP ($("$APP/venv/bin/python" -c 'import sklearn; print("scikit-learn", sklearn.__version__)'))"
@@ -80,13 +87,17 @@ systemctl is-active --quiet nids-deteksi.service || { journalctl -u nids-deteksi
 journalctl -u nids-deteksi -n 3 --no-pager -o cat
 ok "layanan nids-deteksi berjalan (antarmuka $IFACE). Log anomali: $DATA/deteksi.db"
 
-# bot Telegram (perintah baca-saja) + pemantau kesehatan tiap 2 menit
-install -m 644 "$SRC/deploy/nids-bot.service" "$SRC/deploy/nids-pantau.service" "$SRC/deploy/nids-pantau.timer"     /etc/systemd/system/
+# bot Telegram (/status, /ringkasan, /ip, /hampir, /blokir, /buka, /diblokir) + pemantau kesehatan + sinkron firewall
+install -m 644 "$SRC/deploy/nids-bot.service" "$SRC/deploy/nids-pantau.service" "$SRC/deploy/nids-pantau.timer" \
+    "$SRC/deploy/nids-blokir.service" "$SRC/deploy/nids-blokir.path" "$SRC/deploy/nids-blokir.timer" /etc/systemd/system/
 systemctl daemon-reload
-systemctl enable nids-bot.service nids-pantau.timer >/dev/null 2>&1
+systemctl enable nids-bot.service nids-pantau.timer nids-blokir.path nids-blokir.timer >/dev/null 2>&1
 systemctl restart nids-bot.service
 systemctl restart nids-pantau.timer
-ok "bot Telegram (nids-bot) dan pemantau kesehatan (nids-pantau.timer, tiap 2 menit) aktif"
+systemctl restart nids-blokir.path
+systemctl restart nids-blokir.timer
+"$APP/venv/bin/python" "$APP/blokir.py" >/dev/null 2>&1 || true
+ok "bot Telegram (nids-bot), pemantau (nids-pantau.timer), dan firewall blokir IP (nids-blokir.path/.timer) aktif"
 
 # Dashboard (ta-nids-server, user tanids) membaca log deteksi dalam mode baca-saja lewat grup nids
 chmod 750 "$DATA"; find "$DATA" -maxdepth 1 -name 'deteksi.db*' -exec chmod 640 {} +
@@ -97,6 +108,12 @@ if id tanids >/dev/null 2>&1; then
     fi
     if [[ -f /etc/ta-nids-server/config.env ]] && ! grep -q '^PENERIMA_TEPERCAYA=' /etc/ta-nids-server/config.env; then
         echo "PENERIMA_TEPERCAYA=/var/lib/nids-bersama/ip_tepercaya.json" >> /etc/ta-nids-server/config.env
+    fi
+    if [[ -f /etc/ta-nids-server/config.env ]] && ! grep -q '^PENERIMA_BLOKIR=' /etc/ta-nids-server/config.env; then
+        echo "PENERIMA_BLOKIR=/var/lib/nids-bersama/ip_diblokir.json" >> /etc/ta-nids-server/config.env
+    fi
+    if [[ -f /etc/ta-nids-server/config.env ]] && ! grep -q '^PENERIMA_BLOKIR_STATUS=' /etc/ta-nids-server/config.env; then
+        echo "PENERIMA_BLOKIR_STATUS=/var/lib/nids-bersama/ip_diblokir_status.json" >> /etc/ta-nids-server/config.env
     fi
     systemctl restart ta-nids-server.service
     ok "dashboard ta-nids-server terhubung ke log deteksi (menu Deteksi & Umpan balik)"

@@ -102,7 +102,7 @@ def putaran(a, kirim, masalah, keadaan, kini_detik):
     pulih = [k for k in aktif if k not in masalah]
     ingat = bool(masalah) and not baru and kini_detik - keadaan.get("dikirim", 0) >= a.ingatkan_jam * 3600
     if baru or ingat:
-        baris = ["⚠️ <b>NIDS · masalah sistem</b> · %s" % nama, ""]
+        baris = ["⚠️ <b>ASUNA · masalah sistem</b> · %s" % nama, ""]
         baris += ["• %s%s" % (t, "  <i>(baru)</i>" if k in baru and not ingat else "") for k, t in masalah.items()]
         baris += ["", "Selama masalah ini ada, deteksi serangan bisa tidak berjalan. Pesan diulang tiap %d jam "
                       "sampai pulih." % a.ingatkan_jam]
@@ -113,7 +113,7 @@ def putaran(a, kirim, masalah, keadaan, kini_detik):
                 aktif.setdefault(k, {"sejak": kini_detik, "teks": masalah[k]})
             keadaan["dikirim"] = kini_detik
     if pulih:
-        baris = ["✅ <b>NIDS · pulih</b> · %s" % nama, ""]
+        baris = ["✅ <b>ASUNA · pulih</b> · %s" % nama, ""]
         baris += ["• %s" % aktif[k]["teks"] for k in pulih]
         if masalah:
             baris += ["", "Masih ada: %s" % ", ".join(masalah)]

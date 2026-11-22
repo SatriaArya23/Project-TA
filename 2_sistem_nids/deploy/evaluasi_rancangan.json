@@ -1,7 +1,7 @@
 {
   "bagian": [
     {
-      "judul": "Rancangan A+C pada CIC-IDS2017 (data uji)",
+      "judul": "Rancangan Dual-IF (IF-Flow + IF-Agg) pada CIC-IDS2017 (data uji)",
       "keterangan": "Rancangan akhir (transformasi log, notebook 07). Model dilatih pada lalu lintas normal hari Senin CIC-IDS2017; contamination dipilih pada data validasi (F1 tertinggi, FPR maks. 10%). Angka ini menilai rancangan, bukan model server ini. Rancangan awal tanpa log: F1 0,874; FPR 7,5%; DoS 97,2%; port scan 99,8%; brute force SSH 91,6%.",
       "metrik": {
         "F1-score": "0,872",

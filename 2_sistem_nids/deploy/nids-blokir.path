@@ -1,0 +1,9 @@
+[Unit]
+Description=Pantau perubahan daftar IP diblokir NIDS untuk sinkronisasi firewall instan
+
+[Path]
+PathChanged=/var/lib/nids-bersama/ip_diblokir.json
+Unit=nids-blokir.service
+
+[Install]
+WantedBy=multi-user.target

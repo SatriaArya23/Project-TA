@@ -35,6 +35,10 @@ dpkg -s python3-venv >/dev/null 2>&1 || { apt-get update -qq; apt-get install -y
 id tanids >/dev/null 2>&1 || useradd --system --home-dir "$DATA" --no-create-home --shell /usr/sbin/nologin tanids
 install -d -o tanids -g tanids -m 750 "$DATA"
 install -d -o root -g tanids -m 750 "$ETC"
+if getent group nids >/dev/null 2>&1; then
+    usermod -aG nids tanids
+    install -d -o root -g nids -m 2770 /var/lib/nids-bersama
+fi
 ok "user tanids dan folder data siap"
 
 # 2. konfigurasi (dibuat sekali)

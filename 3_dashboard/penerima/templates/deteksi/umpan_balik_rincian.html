@@ -36,7 +36,7 @@
       <th class="kanan">Selisih</th><th class="kanan">Ambang perlu</th><th class="kanan">Contamination perlu</th><th>Aman?</th>
       <th class="kanan">Tambahan / hari</th></tr></thead>
     <tbody>{% for k in h.kandidat %}<tr {% if h.usulan and k.model == h.usulan.model and k.model_id == h.usulan.model_id %}class="terpilih"{% endif %}>
-      <td>{{ k.model }}</td><td class="mono redup">{{ k.versi }}</td>
+      <td>{{ k.model|nama_model }}</td><td class="mono redup">{{ k.versi }}</td>
       <td class="kanan mono">{{ k.skor_maks|desimal(8) }}</td>
       <td class="kanan mono">{{ k.ambang_sekarang|desimal(8) }}{% if k.contamination_sekarang %} <span class="redup">({{ k.contamination_sekarang|persen(1) }})</span>{% endif %}</td>
       {% if k.catatan %}<td colspan="5" class="redup">{{ k.catatan }}</td>{% else %}
@@ -63,7 +63,7 @@
     <p>Tidak ada aliran dari IP ini yang ditandai anomali pada rentang tersebut.</p>
   {% elif h.status == 'terdeteksi_penyesuaian' %}
     {% set u = h.usulan %}
-    <p><strong>Terdeteksi setelah penyesuaian ambang.</strong> Turunkan ambang Model {{ u.model }}:
+    <p><strong>Terdeteksi setelah penyesuaian ambang.</strong> Turunkan ambang {{ u.model|nama_model }}:
     <span class="mono">{{ u.ambang_sekarang|desimal(8) }}</span> → <span class="mono">{{ u.ambang_baru|desimal(8) }}</span>
     (contamination {{ u.contamination_sekarang|persen(3) if u.contamination_sekarang is not none else '—' }} → {{ u.contamination_baru|persen(3) }}).
     Tertangkap {{ u.tertangkap|angka }} aliran; perkiraan tambahan {{ '%.1f'|format(u.tambahan_aliran_per_hari)|replace('.', ',') }} aliran / {{ '%.1f'|format(u.tambahan_ip_per_hari)|replace('.', ',') }} IP per hari.</p>

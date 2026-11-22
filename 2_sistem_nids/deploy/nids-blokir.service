@@ -1,0 +1,12 @@
+[Unit]
+Description=NIDS sinkronisasi aturan firewall IP diblokir (nftables)
+After=network-online.target nftables.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/nids-deteksi/venv/bin/python /opt/nids-deteksi/blokir.py
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

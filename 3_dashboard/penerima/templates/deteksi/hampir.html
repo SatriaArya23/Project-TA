@@ -13,7 +13,7 @@
 <section class="wz-card">
   <div class="wz-card-head">
     <h2>Hampir anomali <span class="wz-tag">{{ total|angka }} IP sumber</span></h2>
-    <span class="redup kecil">{{ nama_rentang }} s.d. {{ akhir|wita_us }} WITA · batas A ≤ {{ batas.A|persen(0) }}, C ≤ {{ batas.C|persen(0) }}</span>
+    <span class="redup kecil">{{ nama_rentang }} s.d. {{ akhir|wita_us }} WITA · batas IF-Flow ≤ {{ batas.A|persen(0) }}, IF-Agg ≤ {{ batas.C|persen(0) }}</span>
   </div>
 
   <div class="gulir">
@@ -28,7 +28,7 @@
       <tr>
         <td class="mono"><a href="{{ url_for('deteksi.rincian_ip', ip=p.src_ip) }}">{{ p.src_ip }}</a></td>
         <td class="kanan">{{ p.dekat|angka }} <span class="redup">/ {{ p.aliran|angka }}</span></td>
-        <td><span class="lencana model">{{ t.model }}</span></td>
+        <td><span class="lencana model">{{ t.model|nama_model }}</span></td>
         <td class="kanan mono">{{ t.skor|desimal(4) }} <span class="redup">/ {{ t.ambang|desimal(4) }}</span></td>
         <td class="kanan">{{ t.persentil|persen(2) }} <span class="redup">/ {{ t.persentil_ambang|persen(2) }}</span></td>
         <td class="mono">{% for port, n in p.port %}{{ port }}<span class="redup">×{{ n }}</span>{% if not loop.last %}, {% endif %}{% endfor %}</td>

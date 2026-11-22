@@ -1,0 +1,92 @@
+{% extends "dasar.html" %}
+{% block judul %}IP diblokir{% endblock %}
+{% block isi %}
+{% if pesan %}<p class="galat">{{ pesan }}</p>{% endif %}
+{% if ok %}<p class="berhasil">{{ ok }}</p>{% endif %}
+{% if not siap %}<p class="peringatan">Folder bersama modul deteksi belum ada di server ini; jalankan <code>pasang-deteksi.sh</code> terlebih dahulu.</p>{% endif %}
+
+<div class="panel-grid-2">
+  <section class="panel-kartu">
+    <div class="panel-kepala">
+      <h2>Blokir IP manual</h2>
+      <span class="lencana netral">maks /{{ prefiks[4] }} · /{{ prefiks[6] }}</span>
+    </div>
+    {% if boleh_blokir and siap %}
+    <form method="post" class="formulir">
+      <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+      <input type="hidden" name="aksi" value="tambah">
+      <label>IP atau subnet <input name="ip" value="{{ isi.ip }}" required maxlength="64" class="mono"
+        placeholder="mis. 203.0.113.66 atau 203.0.113.0/24" autocomplete="off"></label>
+      <label>Durasi blokir
+        <select name="durasi" class="penuh">
+          {% for k, nama, _d in durasi_opsi %}
+          <option value="{{ k }}" {% if (isi.durasi or '1j') == k %}selected{% endif %}>{{ nama }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Alasan / keterangan <input name="ket" value="{{ isi.ket }}" maxlength="120" class="penuh"
+        placeholder="mis. port scan berulang, brute force SSH"></label>
+      <button type="submit" class="utama bahaya">Blokir IP sekarang</button>
+    </form>
+    {% elif not boleh_blokir %}
+    <p class="redup">Hanya administrator yang dapat memblokir atau membuka blokir IP.</p>
+    {% endif %}
+  </section>
+
+  <section class="panel-kartu">
+    <div class="panel-kepala">
+      <h2>Status firewall &amp; pengaman</h2>
+      {% if fw_status and fw_status.ok %}
+      <span class="lencana ok">{{ fw_status.alat }} aktif · {{ fw_status.jumlah }} aturan</span>
+      {% elif fw_status and not fw_status.ok %}
+      <span class="lencana mati">sinkron gagal</span>
+      {% else %}
+      <span class="lencana netral">menunggu sinkron</span>
+      {% endif %}
+    </div>
+    <ul class="poin">
+      <li>Pemblokiran dilakukan <strong>secara manual oleh administrator</strong> (bukan pemblokiran otomatis oleh model ML) melalui tabel terisolasi <code>inet nids_blokir</code>.</li>
+      <li>IP dalam <strong>Daftar IP tepercaya</strong>, alamat server sendiri, jaringan privat, dan IP yang sedang Anda gunakan otomatis ditolak agar tidak terkunci dari sistem.</li>
+      <li>Blokir berdurasi (1 jam, 24 jam, 7 hari) dicabut otomatis oleh sistem saat masa berlaku habis; Anda juga dapat membuka blokir kapan saja.</li>
+      {% if fw_status and fw_status.terakhir_utc %}
+      <li>Sinkron firewall terakhir: <strong>{{ fw_status.terakhir_utc|wita }}</strong>{% if fw_status.galat %} · <span class="teks-bahaya">{{ fw_status.galat }}</span>{% endif %}</li>
+      {% endif %}
+    </ul>
+  </section>
+</div>
+
+<section class="panel-kartu">
+  <div class="panel-kepala">
+    <h2>Daftar IP yang sedang diblokir <span class="lencana netral">{{ entri|length }} aktif</span></h2>
+  </div>
+  <div class="gulir"><table>
+    <thead><tr>
+      <th>IP / subnet</th><th>Durasi / kedaluwarsa (WITA)</th><th>Alasan</th>
+      <th class="kanan">Aliran 7 hari</th><th>Diblokir oleh / kapan</th>
+      {% if boleh_blokir and siap %}<th></th>{% endif %}
+    </tr></thead>
+    <tbody>
+    {% for e in entri %}
+      <tr>
+        <td class="mono">{% if '/' not in e.cidr or e.cidr.endswith('/32') or e.cidr.endswith('/128') %}<a href="{{ url_for('deteksi.rincian_ip', ip=e.cidr.split('/')[0]) }}">{{ e.cidr }}</a>{% else %}{{ e.cidr }}{% endif %}</td>
+        <td>
+          <span class="lencana {{ 'mati' if not e.kedaluwarsa_utc else 'netral' }}">{{ e.durasi_label or ('Permanen' if not e.kedaluwarsa_utc else 'Sementara') }}</span>
+          {% if e.kedaluwarsa_utc %}<span class="redup kecil">s.d. {{ e.kedaluwarsa_utc|wita }}</span>{% endif %}
+        </td>
+        <td>{{ e.keterangan or '—' }}</td>
+        <td class="kanan">{{ e.aliran|angka if e.aliran is not none else '—' }}</td>
+        <td class="redup">{{ e.waktu_utc|wita if e.waktu_utc else '—' }}{% if e.oleh %} · {{ e.oleh }}{% endif %}</td>
+        {% if boleh_blokir and siap %}
+        <td><form method="post" class="aksi-baris">
+          <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="aksi" value="hapus">
+          <input type="hidden" name="cidr" value="{{ e.cidr }}">
+          <button type="submit">Buka blokir</button></form></td>
+        {% endif %}
+      </tr>
+    {% else %}
+      <tr><td colspan="6" class="redup">Tidak ada IP yang sedang diblokir.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</section>
+{% endblock %}

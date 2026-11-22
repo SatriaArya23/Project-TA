@@ -85,22 +85,22 @@
 
   <section class="kartu-kotak">
     <div class="kartu-judul">
-      <h2>Dua Isolation Forest (A + C)</h2>
-      <span class="wz-tag">Aturan: A atau C</span>
+      <h2>Dual-IF (IF-Flow + IF-Agg)</h2>
+      <span class="wz-tag">Aturan: IF-Flow atau IF-Agg</span>
     </div>
     <div class="tabel-ringkas">
       <table>
         <thead><tr><th>Model</th><th class="kanan">Fitur</th><th class="kanan">Contamination</th><th class="kanan">Ambang skor</th></tr></thead>
         <tbody>
-          <tr><td><span class="tebal">A</span> <span class="redup">· aliran</span></td><td class="kanan">{{ info.A.jumlah_fitur }}</td><td class="kanan">{{ info.A.contamination if info.A.contamination is not none else 'manual' }}</td><td class="kanan mono">{{ info.A.ambang|desimal(4) }}</td></tr>
-          <tr><td><span class="tebal">C</span> <span class="redup">· agregasi</span></td><td class="kanan">{{ info.C.jumlah_fitur }}</td><td class="kanan">{{ info.C.contamination if info.C.contamination is not none else 'manual' }}</td><td class="kanan mono">{{ info.C.ambang|desimal(4) }}</td></tr>
+          <tr><td><span class="tebal">IF-Flow</span> <span class="redup">· aliran</span></td><td class="kanan">{{ info.A.jumlah_fitur }}</td><td class="kanan">{{ info.A.contamination if info.A.contamination is not none else 'manual' }}</td><td class="kanan mono">{{ info.A.ambang|desimal(4) }}</td></tr>
+          <tr><td><span class="tebal">IF-Agg</span> <span class="redup">· agregasi</span></td><td class="kanan">{{ info.C.jumlah_fitur }}</td><td class="kanan">{{ info.C.contamination if info.C.contamination is not none else 'manual' }}</td><td class="kanan mono">{{ info.C.ambang|desimal(4) }}</td></tr>
         </tbody>
       </table>
     </div>
-    <p class="info-baris">Anomali ditandai bila skor <strong>A</strong> atau <strong>C</strong> melewati ambang.</p>
+    <p class="info-baris">Anomali ditandai bila skor <strong>IF-Flow</strong> atau <strong>IF-Agg</strong> melewati ambang.</p>
     {% if info.riwayat_ambang %}
     <h3>Riwayat penyesuaian ambang</h3>
-    <ul class="poin">{% for r in info.riwayat_ambang %}<li>Model {{ r.model }}: <span class="mono">{{ r.dari|desimal(4) }}</span> → <span class="mono">{{ r.ke|desimal(4) }}</span></li>{% endfor %}</ul>
+    <ul class="poin">{% for r in info.riwayat_ambang %}<li>{{ r.model|nama_model }}: <span class="mono">{{ r.dari|desimal(4) }}</span> → <span class="mono">{{ r.ke|desimal(4) }}</span></li>{% endfor %}</ul>
     {% endif %}
   </section>
 </div>
@@ -110,7 +110,7 @@
   {% for b in info.evaluasi.bagian %}
   <div class="kartu-kotak-putih">
     <div class="kartu-judul">
-      <h2>Hasil evaluasi · {{ b.judul }}</h2>
+      <h2>Hasil evaluasi · {{ b.judul|replace('Rancangan A+C', 'Rancangan Dual-IF (IF-Flow + IF-Agg)') }}</h2>
       <span class="wz-tag">CIC-IDS2017</span>
     </div>
 
@@ -172,7 +172,7 @@
   </div>
   <p class="catatan atas">Laporan: {% for k in e.kasus %}<a href="{{ url_for('deteksi.rincian_umpan_balik', ub_id=k) }}">#{{ k }}</a>{% if not loop.last %}, {% endif %}{% endfor %}.</p>
   <dl class="meta-grid">
-    <div class="meta-item"><dt>Contamination terpilih</dt><dd class="mono">A = {{ e.pilihan.contamination_a }}, C = {{ e.pilihan.contamination_c }}</dd></div>
+    <div class="meta-item"><dt>Contamination terpilih</dt><dd class="mono">IF-Flow = {{ e.pilihan.contamination_a }}, IF-Agg = {{ e.pilihan.contamination_c }}</dd></div>
     <div class="meta-item"><dt>Kasus lolos terdeteksi</dt><dd>{{ e.pilihan.kasus_lolos_terdeteksi }} / {{ e.jumlah_lolos }} <span class="sub">{{ e.pilihan.aliran_lolos_tertangkap }} dari {{ e.pilihan.aliran_lolos }} aliran</span></dd></div>
     <div class="meta-item"><dt>Aliran alarm palsu ditandai</dt><dd>{{ e.pilihan.aliran_palsu_ditandai }} / {{ e.pilihan.aliran_palsu }}</dd></div>
     <div class="meta-item"><dt>Data latih ditandai</dt><dd>{{ e.pilihan.proporsi_latih_ditandai|persen }}</dd></div>

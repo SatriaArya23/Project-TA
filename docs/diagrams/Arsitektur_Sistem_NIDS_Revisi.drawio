@@ -34,7 +34,7 @@
         <mxCell id="L2" value="&lt;b&gt;2. Penyusun Aliran &amp;amp; Ekstraksi Fitur&lt;/b&gt;&lt;br&gt;68 fitur aliran (aturan CICFlowMeter)&lt;br&gt;+ 7 fitur agregasi IP/subnet (jendela 300 dtk)" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;fillColor=#FFFFFF;strokeColor=#2C5A87;strokeWidth=1.3;fontSize=11.5;fontColor=#0F172A;spacing=4;" vertex="1" parent="1">
           <mxGeometry x="50" y="252" width="310" height="62" as="geometry" />
         </mxCell>
-        <mxCell id="L3" value="&lt;b&gt;3. Modul Deteksi Isolation Forest&lt;/b&gt;&lt;br&gt;Model A (aliran) OR Model C (perilaku sumber),&lt;br&gt;transformasi log; hanya aliran masuk dinilai" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;fillColor=#EAF3FC;strokeColor=#1D5B96;strokeWidth=1.3;fontSize=11.5;fontColor=#0F172A;spacing=4;" vertex="1" parent="1">
+        <mxCell id="L3" value="&lt;b&gt;3. Modul Deteksi Isolation Forest&lt;/b&gt;&lt;br&gt;IF-Flow (aliran) OR IF-Agg (perilaku sumber),&lt;br&gt;transformasi log; hanya aliran masuk dinilai" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;fillColor=#EAF3FC;strokeColor=#1D5B96;strokeWidth=1.3;fontSize=11.5;fontColor=#0F172A;spacing=4;" vertex="1" parent="1">
           <mxGeometry x="50" y="344" width="310" height="76" as="geometry" />
         </mxCell>
         <mxCell id="L4" value="&lt;b&gt;4. Log Anomali &amp;amp; Ringkasan (SQLite)&lt;/b&gt;&lt;br&gt;deteksi.db: skor semua aliran, anomali,&lt;br&gt;ringkasan/menit, versi model, latensi notif" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;fillColor=#FFFFFF;strokeColor=#2C5A87;strokeWidth=1.3;fontSize=11.5;fontColor=#0F172A;spacing=4;" vertex="1" parent="1">
@@ -67,7 +67,7 @@
         <mxCell id="M4" value="&lt;b&gt;Simulasi Serangan Terkendali&lt;/b&gt;&lt;br&gt;Skenario normal, port scan, port scan&lt;br&gt;lambat, SSH brute force, HTTP flood&lt;br&gt;(target dikunci ke VPS uji;&lt;br&gt;jadwal dicatat sebagai kunci jawaban)" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;fillColor=#FFFFFF;strokeColor=#B5751D;strokeWidth=1.3;fontSize=10.8;fontColor=#0F172A;spacing=4;" vertex="1" parent="1">
           <mxGeometry x="990" y="268" width="245" height="118" as="geometry" />
         </mxCell>
-        <mxCell id="U1" value="&lt;b&gt;Modul Sistem NIDS Identik&lt;/b&gt;&lt;br&gt;Penangkap paket → 68+7 fitur →&lt;br&gt;Model A+C (baseline VPS uji) + IP&lt;br&gt;Tepercaya → log SQLite, bot &amp;amp; pemantau" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;fillColor=#E6F6F0;strokeColor=#23735F;strokeWidth=1.3;fontSize=10.8;fontColor=#0F172A;spacing=4;" vertex="1" parent="1">
+        <mxCell id="U1" value="&lt;b&gt;Modul Sistem NIDS Identik&lt;/b&gt;&lt;br&gt;Penangkap paket → 68+7 fitur →&lt;br&gt;Dual-IF (baseline VPS uji) + IP&lt;br&gt;Tepercaya → log SQLite, bot &amp;amp; pemantau" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;fillColor=#E6F6F0;strokeColor=#23735F;strokeWidth=1.3;fontSize=10.8;fontColor=#0F172A;spacing=4;" vertex="1" parent="1">
           <mxGeometry x="715" y="534" width="250" height="88" as="geometry" />
         </mxCell>
         <mxCell id="U2" value="&lt;b&gt;Layanan Sasaran Uji&lt;/b&gt;&lt;br&gt;SSH (port 22) &amp;amp; web nginx (port 80)&lt;br&gt;+ lalu lintas latar internet&lt;br&gt;(bot pemindai otomatis)" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;fillColor=#FFFFFF;strokeColor=#23735F;strokeWidth=1.3;fontSize=10.8;fontColor=#0F172A;spacing=4;" vertex="1" parent="1">
@@ -180,7 +180,7 @@
         <mxCell id="lb_adm1" value="notif &amp;amp; perintah bot" style="text;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fontSize=10;fontColor=#334155;labelBackgroundColor=#FFFFFF;" vertex="1" parent="1">
           <mxGeometry x="86" y="718" width="122" height="22" as="geometry" />
         </mxCell>
-        <mxCell id="lb_adm2" value="pantau, umpan balik, whitelist" style="text;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fontSize=10;fontColor=#334155;labelBackgroundColor=#FFFFFF;" vertex="1" parent="1">
+        <mxCell id="lb_adm2" value="pantau, umpan balik, blokir IP" style="text;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fontSize=10;fontColor=#334155;labelBackgroundColor=#FFFFFF;" vertex="1" parent="1">
           <mxGeometry x="398" y="718" width="178" height="22" as="geometry" />
         </mxCell>
         <mxCell id="e_m12" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;startArrow=none;strokeWidth=1.4;strokeColor=#1E293B;exitX=0.5;exitY=1.0;exitDx=0;exitDy=0;entryX=0.5;entryY=0.0;entryDx=0;entryDy=0;" edge="1" parent="1" source="M1" target="M2">
@@ -451,10 +451,10 @@
         <mxCell id="pd1" value="&lt;b&gt;Kinerja validasi&lt;/b&gt;&lt;br&gt;&lt;b&gt;memadai?&lt;/b&gt;" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FFFBF2;strokeColor=#B5751D;strokeWidth=1.4;fontSize=11;fontColor=#0F172A;" vertex="1" parent="1">
           <mxGeometry x="230" y="626" width="320" height="78" as="geometry" />
         </mxCell>
-        <mxCell id="ptun" value="&lt;b&gt;Penalaan Parameter&lt;/b&gt;&lt;br&gt;Contamination A/C, panjang&lt;br&gt;jendela, &amp;amp; varian fitur" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;fillColor=#F8FAFC;strokeColor=#475569;strokeWidth=1.3;fontSize=10.8;fontColor=#0F172A;spacing=4;" vertex="1" parent="1">
+        <mxCell id="ptun" value="&lt;b&gt;Penalaan Parameter&lt;/b&gt;&lt;br&gt;Contamination Dual-IF, panjang&lt;br&gt;jendela, &amp;amp; varian fitur" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;fillColor=#F8FAFC;strokeColor=#475569;strokeWidth=1.3;fontSize=10.8;fontColor=#0F172A;spacing=4;" vertex="1" parent="1">
           <mxGeometry x="640" y="630" width="240" height="70" as="geometry" />
         </mxCell>
-        <mxCell id="p6" value="&lt;b&gt;6. Simpan Model Versi Baru (.joblib)&lt;/b&gt;&lt;br&gt;Model A+C, nilai ambang, kuantil skor latih, metadata versi &amp;amp; hasil evaluasi" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;fillColor=#E6F6F0;strokeColor=#23735F;strokeWidth=1.3;fontSize=11;fontColor=#0F172A;spacing=4;" vertex="1" parent="1">
+        <mxCell id="p6" value="&lt;b&gt;6. Simpan Model Versi Baru (.joblib)&lt;/b&gt;&lt;br&gt;Dual-IF (IF-Flow + IF-Agg), ambang, kuantil skor latih, metadata versi &amp;amp; hasil evaluasi" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;fillColor=#E6F6F0;strokeColor=#23735F;strokeWidth=1.3;fontSize=11;fontColor=#0F172A;spacing=4;" vertex="1" parent="1">
           <mxGeometry x="150" y="742" width="480" height="62" as="geometry" />
         </mxCell>
         <mxCell id="p7" value="&lt;b&gt;7. Pasang ke VPS Uji → Uji Simulasi → Pasang ke VPS Perusahaan&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;fillColor=#FFFFFF;strokeColor=#23735F;strokeWidth=1.3;fontSize=11;fontColor=#0F172A;spacing=4;" vertex="1" parent="1">

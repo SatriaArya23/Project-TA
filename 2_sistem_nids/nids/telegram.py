@@ -33,7 +33,7 @@ from .log_anomali import LogAnomali, sekarang_us
 
 WITA = timezone(timedelta(hours=8))
 BULAN = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"]
-NAMA_MODEL = {"A": "Model A (pola satu koneksi)", "C": "Model C (perilaku sumber)", "A+C": "Model A dan C"}
+NAMA_MODEL = {"A": "IF-Flow (pola satu koneksi)", "C": "IF-Agg (perilaku sumber)", "A+C": "Dual-IF (IF-Flow & IF-Agg)"}
 
 
 def teks_wita(us):
@@ -58,7 +58,7 @@ def susun_pesan(ip, kejadian, ditahan, nama_server, jendela_detik):
     model = NAMA_MODEL["A+C"] if len(oleh) > 1 or "A+C" in oleh else NAMA_MODEL[oleh.pop()]
     t = tingkat(kejadian, f)
     baris = [
-        "%s <b>NIDS · Anomali %s</b>" % ("🔴" if t == "TINGGI" else "🟠", t),
+        "%s <b>ASUNA NIDS · Anomali %s</b>" % ("🔴" if t == "TINGGI" else "🟠", t),
         "%s%s" % (("<b>%s</b> · " % e(nama_server)) if nama_server else "",
                   teks_wita(min(k[1]["_mulai_us"] for k in kejadian))),
         "",
@@ -114,12 +114,22 @@ def _samarkan(teks, token):
     return teks.replace(token, "***") if token else teks
 
 
-def kirim_telegram(token, chat_id, teks, batas_waktu=15):
+def susun_tombol_blokir(ip):
+    """Tombol cepat di notifikasi anomali agar admin dapat memblokir IP langsung dari Telegram."""
+    return {"inline_keyboard": [[
+        {"text": "🚫 Blokir 1 Jam", "callback_data": "blk:1j:%s" % ip},
+        {"text": "🔒 Blokir Permanen", "callback_data": "blk:perm:%s" % ip},
+    ]]}
+
+
+def kirim_telegram(token, chat_id, teks, batas_waktu=15, reply_markup=None):
     """Kirim satu pesan. Kembalikan (berhasil, telegram_date, keterangan)."""
     token, chat_id = str(token).strip(), str(chat_id).strip()       # buang spasi / \r dari berkas rahasia
     url = "https://api.telegram.org/bot%s/sendMessage" % token
-    data = urllib.parse.urlencode({"chat_id": chat_id, "text": teks, "parse_mode": "HTML",
-                                   "disable_web_page_preview": "true"}).encode()
+    isi = {"chat_id": chat_id, "text": teks, "parse_mode": "HTML", "disable_web_page_preview": "true"}
+    if reply_markup is not None:
+        isi["reply_markup"] = json.dumps(reply_markup)
+    data = urllib.parse.urlencode(isi).encode()
     for percobaan in range(3):
         try:
             with _pembuka.open(urllib.request.Request(url, data=data), timeout=batas_waktu) as r:
@@ -166,10 +176,13 @@ def panggil_api(token, metode, params=None, batas_waktu=60):
 
 class Notifikasi:
     def __init__(self, token=None, chat_id=None, path_log=None, jeda_detik=600, nama_server="",
-                 jendela_detik=300, kirim=None, jam=time.time, sinkron=False, min_aliran=3):
+                 jendela_detik=300, kirim=None, jam=time.time, sinkron=False, min_aliran=3, tombol_blokir=True):
         self.aktif = bool((token and chat_id) or kirim)
         self.token, self.chat_id = token, chat_id
-        self.kirim = kirim or (lambda teks: kirim_telegram(self.token, self.chat_id, teks))
+        self.tombol_blokir = tombol_blokir
+        self._kirim_kustom = kirim is not None
+        self.kirim = kirim or (lambda teks, markup=None: kirim_telegram(self.token, self.chat_id, teks,
+                                                                         reply_markup=markup))
         self.path_log, self.jeda, self.nama_server = path_log, jeda_detik, nama_server
         self.jendela_detik, self.jam, self.sinkron = jendela_detik, jam, sinkron
         self.min_aliran = max(1, int(min_aliran))
@@ -206,6 +219,7 @@ class Notifikasi:
             self.terakhir[ip] = kini
             pesan = {"ip": ip, "teks": susun_pesan(ip, daftar, self.ditahan.pop(ip, 0), self.nama_server,
                                                    self.jendela_detik),
+                     "markup": susun_tombol_blokir(ip) if (self.tombol_blokir and not self._kirim_kustom) else None,
                      "anomali_id": daftar[-1][0], "waktu_log_us": None}   # latensi dihitung dari anomali pemicu
             if len(self.terakhir) > 50_000 or len(self.menunggu) > 50_000:   # cegah memori tumbuh tanpa batas
                 batas = kini - max(self.jeda, self.jendela_detik)
@@ -238,7 +252,10 @@ class Notifikasi:
 
     def _kirim_satu(self, pesan):
         t_kirim = sekarang_us()
-        ok, tg_date, ket = self.kirim(pesan["teks"])
+        if self._kirim_kustom:
+            ok, tg_date, ket = self.kirim(pesan["teks"])
+        else:
+            ok, tg_date, ket = self.kirim(pesan["teks"], pesan.get("markup"))
         t_terima = sekarang_us()
         if self.path_log:
             if self._log is None:                                 # koneksi sendiri untuk thread ini

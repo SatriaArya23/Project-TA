@@ -5,6 +5,7 @@
 {% include "deteksi/_cari_ip.html" %}
 {% endblock %}
 {% block isi %}
+{% if ok_pesan %}<p class="berhasil">{{ ok_pesan }}</p>{% endif %}
 {% if pesan %}<p class="galat">{{ pesan }}</p>{% endif %}
 
 <section class="wz-card">
@@ -15,7 +16,7 @@
       <label>Tanggal <input type="date" name="tanggal" value="{{ tanggal }}"></label>
       <label>Model <select name="oleh">
         <option value="">Semua</option>
-        {% for o in ('A', 'C', 'A+C') %}<option {% if oleh == o %}selected{% endif %}>{{ o }}</option>{% endfor %}
+        {% for o in ('A', 'C', 'A+C') %}<option value="{{ o }}" {% if oleh == o %}selected{% endif %}>{{ o|nama_model }}</option>{% endfor %}
       </select></label>
       <button type="submit">Saring</button>
       {% if ip or tanggal or oleh %}<a class="kecil" href="{{ url_for('deteksi.anomali') }}">Reset</a>{% endif %}

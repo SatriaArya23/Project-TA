@@ -1,5 +1,5 @@
 [Unit]
-Description=NIDS bot Telegram (perintah baca-saja: /status /ringkasan /ip /hampir)
+Description=NIDS bot Telegram (/status /ringkasan /ip /hampir /blokir /buka /diblokir)
 After=network-online.target nids-deteksi.service
 Wants=network-online.target
 
@@ -19,8 +19,8 @@ ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
 PrivateDevices=yes
-# berkas -shm log SQLite (mode WAL) perlu ditulis walau koneksinya baca-saja
-ReadWritePaths=/var/lib/nids-deteksi
+# baca-tulis folder log (WAL -shm) dan folder bersama (daftar IP diblokir)
+ReadWritePaths=/var/lib/nids-deteksi /var/lib/nids-bersama
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectControlGroups=yes

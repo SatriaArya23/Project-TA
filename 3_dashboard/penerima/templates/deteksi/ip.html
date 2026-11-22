@@ -6,13 +6,38 @@
 {% include "deteksi/_cari_ip.html" %}
 {% endblock %}
 {% block isi %}
+{% if ok_pesan %}<p class="berhasil">{{ ok_pesan }}</p>{% endif %}
+{% if galat_pesan %}<p class="galat">{{ galat_pesan }}</p>{% endif %}
 <div class="model-kepala">
-  <h2 class="mono">{{ ip }}{% if tepercaya %} <span class="lencana ok">tepercaya</span>{% endif %}</h2>
+  <h2 class="mono">{{ ip }}{% if diblokir %} <span class="lencana mati">diblokir</span>{% endif %}{% if tepercaya %} <span class="lencana ok">tepercaya</span>{% endif %}</h2>
   <div class="aksi-bar-atas">
+    {% if boleh_blokir and blokir_siap() %}
+      {% if diblokir %}
+      <form method="post" action="{{ url_for('deteksi.blokir') }}" class="aksi-kilat">
+        <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+        <input type="hidden" name="aksi" value="hapus">
+        <input type="hidden" name="cidr" value="{{ diblokir.cidr }}">
+        <input type="hidden" name="lanjut" value="{{ request.path }}">
+        <button type="submit">Buka blokir IP</button>
+      </form>
+      {% elif not tepercaya %}
+      <form method="post" action="{{ url_for('deteksi.blokir') }}" class="aksi-kilat">
+        <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+        <input type="hidden" name="aksi" value="tambah">
+        <input type="hidden" name="ip" value="{{ ip }}">
+        <input type="hidden" name="ket" value="Diblokir dari rincian IP">
+        <input type="hidden" name="lanjut" value="{{ request.path }}">
+        <select name="durasi" aria-label="Durasi blokir {{ ip }}">
+          {% for k, nama, _d in durasi_opsi %}<option value="{{ k }}">{{ nama }}</option>{% endfor %}
+        </select>
+        <button type="submit" class="bahaya">Blokir IP</button>
+      </form>
+      {% endif %}
+    {% endif %}
     {% if tepercaya %}
     <span class="redup kecil">{{ tepercaya.cidr }}{% if tepercaya.keterangan %} · {{ tepercaya.keterangan }}{% endif %}</span>
     <a class="tombol" href="{{ url_for('deteksi.tepercaya') }}">Kelola tepercaya</a>
-    {% elif boleh_tepercaya %}
+    {% elif boleh_tepercaya and not diblokir %}
     <a class="tombol" href="{{ url_for('deteksi.tepercaya', ip=ip) }}">Tandai tepercaya</a>
     {% endif %}
     {% if boleh_lapor %}
@@ -45,7 +70,7 @@
   </div>
   {% for s in skor %}
   <div class="wz-strip-item">
-    <dt>Skor tertinggi Model {{ s.model }}</dt>
+    <dt>Skor tertinggi {{ s.model|nama_model }}</dt>
     <dd class="mono">{{ s.skor|desimal(3) }} <span class="redup">/ {{ s.ambang|desimal(3) }} ({{ s.persentil|persen(2) }})</span></dd>
   </div>
   {% endfor %}
