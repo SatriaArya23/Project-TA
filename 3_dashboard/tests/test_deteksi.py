@@ -240,3 +240,247 @@ def test_ip_diblokir(c, app_dasar, tmp_path):
     assert "Hanya administrator" in hv and 'name="ip"' not in hv
     assert v.post("/deteksi/blokir", data={"csrf": csrf(v, "/deteksi/blokir"), "aksi": "tambah",
                                            "ip": PENYERANG, "durasi": "1j"}).status_code == 403
+
+
+def test_login_tengah_tanpa_foto_latar(app_dasar):
+    k = app_dasar.test_client()
+    h = k.get("/login").get_data(as_text=True)
+    assert "ASUNA · Anomaly Detection" in h and "Masuk ke ASUNA" in h and "logo-hotdog.png" in h
+    assert "foto-anemon" not in h and "foto-karang" not in h and "wz-login-media" not in h
+    assert 'style="' not in h
+
+
+def test_kelola_model_katalog_dan_terapkan_umpan_balik(c, app_dasar, tmp_path):
+    from nids import katalog_model
+
+    mdir = str(tmp_path / "katalog-model")
+    os.makedirs(mdir, exist_ok=True)
+    app_dasar.config["MODEL_DIR"] = mdir
+
+    # Buat dua berkas .joblib tiruan dan daftarkan ke katalog (dashboard tidak memuat isi joblib)
+    f1, f2 = tmp_path / "m1.joblib", tmp_path / "m2.joblib"
+    f1.write_bytes(b"joblib-1")
+    f2.write_bytes(b"joblib-2")
+    info1 = {
+        "versi": "m20251030-000000", "hutan": "m20251030-000000", "jendela_detik": 300,
+        "dilatih_utc": "2025-10-30T00:00:00Z", "jumlah_aliran_latih": 1000,
+        "A": {"contamination": 0.001, "ambang": 0.70, "jumlah_fitur": 68, "transformasi": "log",
+              "kuantil": kuantil(0.70, 0.999, 0.9)},
+        "C": {"contamination": 0.01, "ambang": 0.60, "jumlah_fitur": 7, "transformasi": "log",
+              "kuantil": kuantil(0.60, 0.99, 0.9)},
+    }
+    info2 = dict(info1, versi="m20251105-000000", hutan="m20251105-000000", jumlah_aliran_latih=5000)
+    katalog_model.daftar_dari_file(mdir, str(f1), info1, nama="Baseline Normal", oleh="sistem", aktifkan=True)
+    katalog_model.daftar_dari_file(mdir, str(f2), info2, nama="Profil Hari Ramai", oleh="satria", aktifkan=False)
+
+    # Halaman model tampil rapi tanpa inline style, tanpa teks panjang, 1 tabel terpadu
+    h = c.get("/deteksi/model").get_data(as_text=True)
+    assert "Baseline Normal" in h and "Profil Hari Ramai" in h
+    assert "Mode deteksi aktif" in h and "Tambah / unggah model baru" in h and "Riwayat versi model" in h
+    assert "Penyesuaian sensitivitas (ambang)" not in h and "Katalog model tersimpan" not in h
+    assert "worker terisolasi" not in h and "Skor kedua model tetap dicatat" not in h
+    assert 'style="' not in h
+
+    # 1) Ubah mode ke IF-Agg saja
+    r = c.post("/deteksi/model", data={"csrf": csrf(c, "/deteksi/model"), "aksi": "mode", "mode": "C"})
+    assert r.status_code == 302
+    assert katalog_model.baca(mdir)["mode"] == "C"
+    assert "IF-Agg saja" in c.get("/deteksi/model").get_data(as_text=True)
+
+    # 1b) Unggah berkas .joblib masuk ke antrean validasi worker nids-model
+    import io
+    r_up = c.post("/deteksi/model/unggah", data={
+        "csrf": csrf(c, "/deteksi/model"),
+        "berkas": (io.BytesIO(b"isi-model-dummy-joblib"), "eksperimen_v3.joblib"),
+        "nama": "Model Baru V3",
+        "alasan": "hasil latih laptop",
+    }, content_type="multipart/form-data")
+    assert r_up.status_code == 302
+    antre = katalog_model.baca_antrean_impor(mdir)
+    assert antre is not None and antre["nama"] == "Model Baru V3"
+    assert "MODEL_UNGGAH" in c.get("/audit").get_data(as_text=True)
+
+    # Tolak ekstensi bukan .joblib
+    r_up_bad = c.post("/deteksi/model/unggah", data={
+        "csrf": csrf(c, "/deteksi/model"),
+        "berkas": (io.BytesIO(b"halo"), "bukan_model.txt"),
+    }, content_type="multipart/form-data")
+    assert r_up_bad.status_code == 302
+    assert "harus berekstensi .joblib" in c.get("/deteksi/model").get_data(as_text=True)
+
+    # 2) Ubah ambang di luar batas aman -> 400
+    r_bad = c.post("/deteksi/model", data={
+        "csrf": csrf(c, "/deteksi/model"), "aksi": "ambang", "cont_a": "25", "cont_c": "1.0"
+    })
+    assert r_bad.status_code == 400 and "harus antara" in r_bad.get_data(as_text=True)
+
+    # 3) Ubah ambang valid -> versi turunan baru dibuat dan langsung aktif
+    r_ok = c.post("/deteksi/model", data={
+        "csrf": csrf(c, "/deteksi/model"), "aksi": "ambang",
+        "cont_a": "0,25", "cont_c": "1,50", "nama": "Sensitif Uji", "alasan": "uji dashboard"
+    })
+    assert r_ok.status_code == 302
+    kat = katalog_model.baca(mdir)
+    versi_turunan = kat["aktif"]
+    assert versi_turunan not in ("m20251030-000000", "m20251105-000000")
+
+    # 4) Ubah nama profil & rollback ke Profil Hari Ramai & hapus versi turunan
+    assert c.post("/deteksi/model", data={
+        "csrf": csrf(c, "/deteksi/model"), "aksi": "nama", "versi": versi_turunan, "nama": "Label Baru"
+    }).status_code == 302
+    assert katalog_model.cari(katalog_model.baca(mdir), versi_turunan)["nama"] == "Label Baru"
+
+    assert c.post("/deteksi/model", data={
+        "csrf": csrf(c, "/deteksi/model"), "aksi": "aktifkan", "versi": "m20251105-000000"
+    }).status_code == 302
+    assert katalog_model.baca(mdir)["aktif"] == "m20251105-000000"
+
+    assert c.post("/deteksi/model", data={
+        "csrf": csrf(c, "/deteksi/model"), "aksi": "hapus", "versi": versi_turunan
+    }).status_code == 302
+    assert katalog_model.cari(katalog_model.baca(mdir), versi_turunan) is None
+    assert os.path.exists(os.path.join(mdir, "m20251030-000000.joblib"))    # berkas induk tetap aman!
+
+    # Tidak boleh hapus model yang aktif
+    assert c.post("/deteksi/model", data={
+        "csrf": csrf(c, "/deteksi/model"), "aksi": "hapus", "versi": "m20251105-000000"
+    }).status_code == 400
+
+    # 5) Tombol 1-klik "Terapkan ambang usulan sekarang" dari Umpan Balik
+    katalog_model.aktifkan(mdir, "m20251030-000000", oleh="satria")
+    r_ub = lapor(c, "lolos", NYARIS, T0 + 209 * MENIT, T0 + 216 * MENIT)
+    url_ub = r_ub.headers["Location"]
+    h_ub = c.get(url_ub).get_data(as_text=True)
+    assert "Terapkan ambang usulan sekarang" in h_ub and 'style="' not in h_ub
+    r_terap = c.post(url_ub + "/terapkan", data={"csrf": csrf(c, url_ub)})
+    assert r_terap.status_code == 302
+    h_ub2 = c.get(url_ub).get_data(as_text=True)
+    assert "diterapkan otomatis pada model" in h_ub2 and "selesai</span>" in h_ub2
+    assert "Riwayat penyesuaian ambang" in h_ub2 and "IF-Agg" in h_ub2
+    assert ">Detail</a>" in c.get("/deteksi/umpan-balik").get_data(as_text=True)
+
+    # 6) Audit log mencatat aksi & pemantau (viewer) tidak bisa mengubah model
+    audit = c.get("/audit").get_data(as_text=True)
+    for ev in ("MODEL_MODE", "MODEL_AMBANG", "MODEL_NAMA", "MODEL_AKTIFKAN", "MODEL_HAPUS"):
+        assert ev in audit
+
+    v = app_dasar.test_client()
+    masuk(v, "paktut", "sandi-paktut-123")
+    hv = v.get("/deteksi/model").get_data(as_text=True)
+    assert "hanya dapat dilakukan oleh administrator" in hv and 'name="mode"' not in hv
+    assert v.post("/deteksi/model", data={
+        "csrf": csrf(v, "/deteksi/model"), "aksi": "mode", "mode": "A"
+    }).status_code == 403
+
+
+def test_kontrol_rekam_tab_rekaman(c, app_dasar, tmp_path):
+    from nids import rekam_kendali
+
+    folder = tmp_path / "bersama-rekam"
+    folder.mkdir()
+    app_dasar.config["REKAM_CMD_PATH"] = str(folder / "rekam_perintah.json")
+    app_dasar.config["REKAM_STATUS_PATH"] = str(folder / "rekam_status.json")
+
+    h = c.get("/rekaman").get_data(as_text=True)
+    assert "Kontrol perekaman lalu lintas" in h and "Mulai rekam lalu lintas" in h and 'style="' not in h
+
+    r = c.post("/rekaman/kendali", data={
+        "csrf": csrf(c, "/rekaman"), "aksi": "mulai", "durasi": "6j", "catatan": "uji rekam"
+    })
+    assert r.status_code == 302
+    cmd = rekam_kendali.baca_perintah(app_dasar.config["REKAM_CMD_PATH"])
+    assert cmd["aksi"] == "mulai" and cmd["durasi"] == "6j"
+
+    # Simulasikan worker sudah menyalakan perekam -> tombol Hentikan tampil
+    rekam_kendali.simpan_status(app_dasar.config["REKAM_STATUS_PATH"], {
+        "terpasang": True, "aktif": True, "durasi_label": "6 jam", "pesan": "Sedang merekam"
+    })
+    h2 = c.get("/rekaman").get_data(as_text=True)
+    assert "Sedang merekam" in h2 and "Hentikan &amp; simpan rekaman sekarang" in h2
+
+    r_stop = c.post("/rekaman/kendali", data={"csrf": csrf(c, "/rekaman"), "aksi": "berhenti"})
+    assert r_stop.status_code == 302
+    assert rekam_kendali.baca_perintah(app_dasar.config["REKAM_CMD_PATH"])["aksi"] == "berhenti"
+    audit = c.get("/audit").get_data(as_text=True)
+    assert "REKAM_MULAI" in audit and "REKAM_BERHENTI" in audit
+
+    # Viewer tidak boleh mengendalikan perekam
+    v = app_dasar.test_client()
+    masuk(v, "paktut", "sandi-paktut-123")
+    assert v.post("/rekaman/kendali", data={"csrf": csrf(v, "/rekaman"), "aksi": "mulai", "durasi": "1j"}).status_code == 403
+
+
+def test_multi_ai_dashboard_ringkasan_dan_ip(c, app_dasar, tmp_path):
+    from nids import asisten_ai
+
+    asisten_ai._CACHE.clear()
+    folder = tmp_path / "bersama-ai"
+    folder.mkdir()
+    app_dasar.config["AI_CONFIG_PATH"] = str(folder / "ai_konfig.json")
+
+    def fake_ai(url, payload, headers):
+        if "generativelanguage" in url:
+            return {"candidates": [{"content": {"parts": [{"text": "Analisis Gemini: risiko tinggi port scan."}]}}]}
+        return {"choices": [{"message": {"content": "Analisis OpenAI: indikasi port scan, sarankan blokir 24 jam."}}]}
+
+    app_dasar.config["AI_TRANSPORT"] = fake_ai
+
+    # Tambah 2 profil AI (OpenAI + Gemini)
+    r1 = c.post("/deteksi/ai", data={
+        "csrf": csrf(c, "/deteksi/ai"), "aksi": "tambah",
+        "nama": "OpenAI Utama", "provider": "openai", "model": "gpt-4o-mini",
+        "api_key": "sk-rahasia-asli-99887766", "aktifkan": "1",
+    })
+    assert r1.status_code == 302
+    r2 = c.post("/deteksi/ai", data={
+        "csrf": csrf(c, "/deteksi/ai"), "aksi": "tambah",
+        "nama": "Gemini Kedua", "provider": "gemini", "model": "gemini-2.5-flash",
+        "api_key": "AIzaSecretKey554433",
+    })
+    assert r2.status_code == 302
+
+    hai = c.get("/deteksi/ai").get_data(as_text=True)
+    assert "OpenAI Utama" in hai and "Gemini Kedua" in hai and "2 profil" in hai
+    assert "Deteksi anomali tetap 100%" not in hai
+    assert "sk-rahasia-asli-99887766" not in hai and "AIzaSecretKey554433" not in hai   # kunci tak pernah bocor!
+    assert 'style="' not in hai
+
+    # Uji koneksi & Ringkas Ringkasan + Analisis IP (bisa memilih profil ke-2)
+    profil = asisten_ai.daftar_aman(app_dasar.config["AI_CONFIG_PATH"])["profil"]
+    id_openai = next(p["id"] for p in profil if p["nama"] == "OpenAI Utama")
+    id_gemini = next(p["id"] for p in profil if p["nama"] == "Gemini Kedua")
+
+    r_uji = c.post("/deteksi/ai", data={"csrf": csrf(c, "/deteksi/ai"), "aksi": "uji", "id": id_openai})
+    assert r_uji.status_code == 302
+    assert "berhasil dalam" in c.get("/deteksi/ai").get_data(as_text=True)
+
+    r_ringkas = c.post("/deteksi/ringkas-ai", data={
+        "csrf": csrf(c, "/deteksi"), "rentang": "24j", "profil_id": id_openai
+    })
+    assert r_ringkas.status_code == 200 and "Analisis OpenAI" in r_ringkas.get_data(as_text=True)
+
+    r_ip = c.post("/deteksi/ip/" + PENYERANG + "/analisis-ai", data={
+        "csrf": csrf(c, "/deteksi/ip/" + PENYERANG), "profil_id": id_gemini
+    })
+    assert r_ip.status_code == 200 and "Analisis Gemini" in r_ip.get_data(as_text=True)
+
+    r_tanya = c.post("/deteksi/ai", data={
+        "csrf": csrf(c, "/deteksi/ai"), "aksi": "tanya", "pertanyaan": "Apa ancaman terbesar hari ini?"
+    })
+    assert r_tanya.status_code == 200 and "Analisis OpenAI" in r_tanya.get_data(as_text=True)
+
+    # Switch default & hapus profil
+    assert c.post("/deteksi/ai", data={"csrf": csrf(c, "/deteksi/ai"), "aksi": "aktifkan", "id": id_gemini}).status_code == 302
+    assert asisten_ai.baca(app_dasar.config["AI_CONFIG_PATH"])["aktif"] == id_gemini
+    assert c.post("/deteksi/ai", data={"csrf": csrf(c, "/deteksi/ai"), "aksi": "hapus", "id": id_openai}).status_code == 302
+    assert len(asisten_ai.baca(app_dasar.config["AI_CONFIG_PATH"])["profil"]) == 1
+
+    # Audit log & RBAC viewer
+    audit = c.get("/audit").get_data(as_text=True)
+    for ev in ("AI_TAMBAH", "AI_UJI", "AI_RINGKAS", "AI_ANALISIS_IP", "AI_TANYA", "AI_AKTIFKAN", "AI_HAPUS"):
+        assert ev in audit
+
+    v = app_dasar.test_client()
+    masuk(v, "paktut", "sandi-paktut-123")
+    assert v.post("/deteksi/ai", data={"csrf": csrf(v, "/deteksi/ai"), "aksi": "tambah", "nama": "X"}).status_code == 403
+    assert v.post("/deteksi/ringkas-ai", data={"csrf": csrf(v, "/deteksi"), "rentang": "24j"}).status_code == 403

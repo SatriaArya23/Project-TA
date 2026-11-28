@@ -10,7 +10,7 @@ import tempfile
 from flask import Blueprint, abort, current_app, jsonify, request, send_file
 
 from . import statistik
-from .db import catat_audit, koneksi, sekarang
+from .db import catat_audit, koneksi, sekarang, tarik_audit_eksternal
 from .keamanan import ip_klien, token_bearer
 from .waktu import mulai_rekam
 
@@ -198,6 +198,7 @@ def unduh_berkas(berkas_id):
 @bp.get("/audit")
 def daftar_audit():
     tok = token_baca()
+    tarik_audit_eksternal(current_app.config.get("AUDIT_EKSTERNAL_PATH"))
     syarat, nilai = [], []
     if tok["instalasi_id"] is not None:
         syarat.append("instalasi = ?"); nilai.append(tok["instalasi_nama"])

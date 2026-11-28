@@ -1,17 +1,17 @@
 # 2_sistem_nids — Sistem NIDS (Deteksi Real-Time `Dual-IF`: `IF-Flow` + `IF-Agg`)
 
-Program yang memantau lalu lintas server secara *real-time*, mengirim notifikasi/bot **ASUNA** ke Telegram, dan mengeksekusi pemblokiran IP manual melalui `nftables`:
+Program yang memantau lalu lintas server secara *real-time*, mendukung lapisan adaptasi *online* & *hot-reload* katalog model, mengirim notifikasi/bot **ASUNA** ke Telegram (termasuk Asisten Multi-AI dinamis), mengendalikan perekam lalu lintas, dan mengeksekusi pemblokiran IP manual melalui `nftables`:
 
 ```text
-tcpdump (header) ─► pcap.py ─► aliran.py ─► agregasi.py ─► Dual-IF (IF-Flow OR IF-Agg) ─► log SQLite ─► Telegram (ASUNA)
- (penangkap paket)   (baca)     (68 fitur)   (7 fitur,      (model.py, detektor.py)         (log_anomali)    & blokir.py
-                                              300 detik)                                          │         (nftables)
-                                                                                                  └──► dashboard ASUNA (3_dashboard)
-rekaman .pcap.gz ─┘  (putar ulang: pipa yang SAMA, untuk membuat data latih dan pengujian)
+tcpdump (header) ─► pcap.py ─► aliran.py ─► agregasi.py ─► Dual-IF + Adaptasi ─► log SQLite (+ aliran_fitur) ─► Telegram (ASUNA)
+ (penangkap paket)   (baca)     (68 fitur)   (7 fitur,      (model.py,             (log_anomali)                    & blokir.py (nftables)
+                                              300 detik)     adaptasi.py)                 │
+                                                                 ▲                        └──► dashboard ASUNA (3_dashboard)
+rekaman .pcap.gz ─┘  (putar ulang: pipa yang SAMA)               └──── katalog_model.py (hot-reload / impor_model.py)
 ```
 
 Penjelasan struktur kode secara menyeluruh tersedia pada `..\README.md`.
-Di server, layanan terpasang sebagai `nids-deteksi`, `nids-bot`, `nids-pantau.timer`, serta `nids-blokir.path` / `.timer` (`/opt/nids-deteksi`).
+Di server, layanan terpasang sebagai `nids-deteksi`, `nids-bot`, `nids-pantau.timer`, `nids-blokir.path`/`.timer`, `nids-model.path`, dan `nids-rekam-kendali.path`/`.timer` (`/opt/nids-deteksi`).
 
 ## Program yang dijalankan
 
@@ -20,14 +20,15 @@ Di server, layanan terpasang sebagai `nids-deteksi`, `nids-bot`, `nids-pantau.ti
 | `deteksi.py langsung` | Deteksi *real-time* di server (dijalankan otomatis oleh layanan `nids-deteksi`) |
 | `deteksi.py putar-ulang` | Memproses rekaman dengan pipa yang sama: membuat tabel fitur (`--fitur`) atau menguji model (`--model --log`) |
 | `latih_model.py` | Melatih `IF-Flow` dan `IF-Agg` (arsitektur `Dual-IF`) dari tabel fitur, dengan pembersihan sumber serangan intens |
-| `latih_model.py --umpan-balik kasus.json` | Modul pelatihan ulang dari kasus umpan balik dashboard |
 | `ubah_ambang.py` | Menerapkan usulan ambang dari halaman Umpan balik sebagai versi model baru (tanpa latih ulang) |
+| `impor_model.py` | Worker terisolasi (`nids-model`) untuk memvalidasi & menguji asap unggahan `.joblib` sebelum didaftarkan ke katalog |
+| `rekam_kendali.py` | Worker terisolasi (`nids-rekam-kendali`) untuk memulai/menghentikan `traffic-recorder` & auto-stop sesuai durasi |
 | `blokir.py` | Menyinkronkan daftar antrean `ip_diblokir.json` ke tabel firewall kernel `nftables` (`inet nids_blokir`) |
-| `bot.py` / `pantau.py` | Bot Telegram ASUNA (`/status`, `/ringkasan`, `/ip`, `/hampir`, `/blokir`, `/buka`, `/diblokir`) dan pemantau layanan |
+| `bot.py` / `pantau.py` | Bot Telegram ASUNA (`/status`, `/ringkasan`, `/ip`, `/hampir`, `/blokir`, `/buka`, `/diblokir`, `/ai`, `/models`, `/modelai`, `/analisis`, `/ringkasai`, `/tanya`) dan pemantau layanan |
 
 ```powershell
 cd 2_sistem_nids
-python -m pytest -q tests                                                    # 29 uji otomatis
+python -m pytest -q tests                                                    # 37 uji otomatis
 $R = "..\..\05_Data_Eksperimen\Server-Uji"
 python deteksi.py putar-ulang "$R\rekaman" --fitur "$R\hasil\fitur.parquet"   # rekaman -> tabel fitur
 python latih_model.py "$R\hasil\fitur.parquet" --keluar "$R\hasil\model.joblib"

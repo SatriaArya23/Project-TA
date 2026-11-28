@@ -27,6 +27,8 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from nids.detektor import Detektor            # noqa: E402
+from nids import katalog_model                # noqa: E402
+from nids.katalog_model import DIR_BAWAAN as KATALOG_BAWAAN, PengawasModel   # noqa: E402
 from nids.log_anomali import LogAnomali, sekarang_us   # noqa: E402
 from nids.model import ModelDeteksi           # noqa: E402
 from nids.pcap import baca_pcap               # noqa: E402
@@ -49,6 +51,27 @@ def cetak(*a):
 # ============================================================================ deteksi langsung
 def langsung(a):
     model = ModelDeteksi.muat(a.model)
+    berkas_aktif = a.model
+    pengawas = None
+    if a.katalog_dir:
+        induk = os.path.dirname(os.path.abspath(a.katalog_dir))
+        if (os.path.isdir(a.katalog_dir) and os.access(a.katalog_dir, os.W_OK)) or (
+            not os.path.exists(a.katalog_dir) and os.path.isdir(induk) and os.access(induk, os.W_OK)
+        ):
+            try:
+                data_kat, entri_aktif = katalog_model.pastikan_awal(a.katalog_dir, a.model, model.ringkas())
+                if entri_aktif is not None:
+                    p_aktif = katalog_model.path_berkas_model(a.katalog_dir, entri_aktif)
+                    mode_aktif = data_kat.get("mode", "A+C")
+                    if os.path.exists(p_aktif):
+                        if os.path.abspath(p_aktif) != os.path.abspath(a.model):
+                            model = ModelDeteksi.muat(p_aktif, mode=mode_aktif)
+                        model.terapkan_katalog(entri_aktif, mode=mode_aktif)
+                        berkas_aktif = p_aktif
+                pengawas = PengawasModel(a.katalog_dir, periksa_detik=5)
+                pengawas.periksa(paksa=True)
+            except Exception as e:
+                cetak("peringatan katalog model: %s" % e)
     os.makedirs(os.path.dirname(os.path.abspath(a.log)), exist_ok=True)
     log = LogAnomali(a.log)
     token = (os.environ.get("TELEGRAM_TOKEN") or "").strip() or None
@@ -56,15 +79,18 @@ def langsung(a):
     notif = Notifikasi(token, chat, path_log=a.log, jeda_detik=a.jeda_notifikasi, nama_server=a.nama_server,
                        jendela_detik=model.jendela_detik, min_aliran=a.min_aliran_notifikasi)
     tepercaya = DaftarTepercaya(a.tepercaya) if a.tepercaya else None
-    det = Detektor(model, log, notif, jeda_batch_detik=a.jeda_batch, tepercaya=tepercaya)
+    det = Detektor(model, log, notif, jeda_batch_detik=a.jeda_batch, tepercaya=tepercaya,
+                   katalog=pengawas, berkas_model=berkas_aktif)
     log.status(mulai_us=sekarang_us(), berhenti="tidak", nama_server=a.nama_server, antarmuka=a.antarmuka,
                telegram="aktif" if notif.aktif else "tidak aktif", jeda_notifikasi=a.jeda_notifikasi,
-               min_aliran_notifikasi=a.min_aliran_notifikasi, server_ip=",".join(sorted(det.server_ip)))
+               min_aliran_notifikasi=a.min_aliran_notifikasi, server_ip=",".join(sorted(det.server_ip)),
+               model_versi=det.model.versi, model_mode=det.model.mode)
 
     saring = a.saring or "tcp or udp"
     cmd = ["tcpdump", "-n", "-p", "-U", "-i", a.antarmuka, "-s", str(a.snaplen), "-w", "-", saring]
-    cetak("mulai: model %s | jendela %d s | Telegram %s | IP tepercaya %s | %s" % (
-        a.model, model.jendela_detik, "aktif" if notif.aktif else "TIDAK aktif",
+    cetak("mulai: model %s (%s, mode %s) | jendela %d s | Telegram %s | IP tepercaya %s | %s" % (
+        berkas_aktif, det.model.versi, det.model.mode, model.jendela_detik,
+        "aktif" if notif.aktif else "TIDAK aktif",
         len(tepercaya) if tepercaya is not None else "-", " ".join(cmd)))
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=1 << 16)
 
@@ -101,7 +127,7 @@ def langsung(a):
             log.status(terakhir_us=kini, paket=det.pipa.jumlah_paket, aliran=det.jumlah_aliran,
                        anomali=det.jumlah_anomali, antrian=antrian.qsize(), aliran_aktif=len(det.pipa.penyusun.aktif),
                        aliran_keluar=det.jumlah_keluar, anomali_tidak_dikirim=notif.tidak_dikirim,
-                       anomali_tepercaya=det.jumlah_tepercaya)
+                       anomali_tepercaya=det.jumlah_tepercaya, model_versi=det.model.versi, model_mode=det.model.mode)
         if kini - t_retensi >= 86400_000_000:
             t_retensi = kini
             log.buang_lama(a.retensi_hari, a.retensi_aliran_hari)
@@ -191,6 +217,8 @@ def main():
     s.add_argument("--retensi-aliran-hari", type=int, default=30, help="lama menyimpan skor semua aliran")
     s.add_argument("--tepercaya", default=TEPERCAYA_BAWAAN,
                    help="berkas daftar IP tepercaya (ditulis dashboard); '' = tanpa daftar")
+    s.add_argument("--katalog-dir", default=KATALOG_BAWAAN,
+                   help="folder katalog model bersama (hot-reload dari dashboard); '' = nonaktif")
     s.set_defaults(f=langsung)
 
     s = sub.add_parser("putar-ulang", help="proses rekaman pcap dengan pipa yang sama")

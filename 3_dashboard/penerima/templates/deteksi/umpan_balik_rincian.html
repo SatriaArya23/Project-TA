@@ -5,6 +5,8 @@
   <h1>Umpan balik #{{ r.id }} <span class="lencana status-{{ r.status }}">{{ r.status|teks_status }}</span></h1>
   <a class="tombol" href="{{ url_for('deteksi.umpan_balik') }}">← Semua laporan</a>
 </div>
+{% if ok_pesan %}<p class="berhasil">{{ ok_pesan }}</p>{% endif %}
+{% if galat_pesan %}<p class="galat">{{ galat_pesan }}</p>{% endif %}
 
 <section class="panel-kartu langkah">
   <div class="panel-kepala">
@@ -67,16 +69,50 @@
     <span class="mono">{{ u.ambang_sekarang|desimal(8) }}</span> → <span class="mono">{{ u.ambang_baru|desimal(8) }}</span>
     (contamination {{ u.contamination_sekarang|persen(3) if u.contamination_sekarang is not none else '—' }} → {{ u.contamination_baru|persen(3) }}).
     Tertangkap {{ u.tertangkap|angka }} aliran; perkiraan tambahan {{ '%.1f'|format(u.tambahan_aliran_per_hari)|replace('.', ',') }} aliran / {{ '%.1f'|format(u.tambahan_ip_per_hari)|replace('.', ',') }} IP per hari.</p>
-    <pre class="perintah">sudo -u nids /opt/nids-deteksi/venv/bin/python /opt/nids-deteksi/ubah_ambang.py \
+    {% if boleh_model and katalog_siap() and r.status != 'selesai' %}
+    <form method="post" action="{{ url_for('deteksi.terapkan_umpan_balik', ub_id=r.id) }}" class="aksi-form">
+      <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+      <button type="submit" class="utama sedang">Terapkan ambang usulan sekarang</button>
+      <span class="redup kecil">Membuat versi model turunan &amp; langsung aktif tanpa restart.</span>
+    </form>
+    {% endif %}
+    <details class="catatan-lipat">
+      <summary>Perintah manual server (CLI)</summary>
+      <pre class="perintah">sudo -u nids /opt/nids-deteksi/venv/bin/python /opt/nids-deteksi/ubah_ambang.py \
   --model /etc/nids-deteksi/model.joblib --keluar /tmp/model_baru.joblib \
   --ambang-{{ u.model|lower }} {{ '%.8f'|format(u.ambang_baru) }} --alasan "umpan balik #{{ r.id }}"
 sudo install -m 640 -o root -g nids /tmp/model_baru.joblib /etc/nids-deteksi/model.joblib
 sudo systemctl restart nids-deteksi</pre>
+    </details>
+  {% elif h.status == 'dapat_diadaptasi_normal' %}
+    <p><strong>Hampir anomali — tidak ditandai, tetapi {{ h.aliran_dekat|default(0)|angka }} aliran mendekati ambang.</strong> Adaptasikan pola ini sebagai lalu lintas normal agar ke depan tidak masuk daftar hampir anomali lagi.</p>
+    {% if boleh_model and katalog_siap() and r.status != 'selesai' %}
+    <form method="post" action="{{ url_for('deteksi.terapkan_umpan_balik', ub_id=r.id) }}" class="aksi-form">
+      <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+      <input type="hidden" name="mode_terapkan" value="normal">
+      <button type="submit" class="utama sedang tombol-normal">Terapkan adaptasi: Bukan anomali (Normal)</button>
+      <span class="redup kecil">Membuat aturan adaptasi normal &amp; langsung aktif tanpa restart.</span>
+    </form>
+    {% endif %}
   {% elif h.status == 'pelatihan_ulang' %}
     {% if r.jenis == 'palsu' %}
     <p><strong>Masuk antrean pelatihan ulang.</strong> {{ h.ditandai|angka }} aliran ditandai; pola akan dipelajari sebagai lalu lintas normal saat pelatihan ulang.</p>
+    {% if boleh_model and katalog_siap() and r.status != 'selesai' and h.aliran %}
+    <form method="post" action="{{ url_for('deteksi.terapkan_umpan_balik', ub_id=r.id) }}" class="aksi-form">
+      <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+      <input type="hidden" name="mode_terapkan" value="normal">
+      <button type="submit" class="utama sedang tombol-normal">Terapkan adaptasi normal sekarang (selain antrean latih ulang)</button>
+    </form>
+    {% endif %}
     {% else %}
     <p><strong>Masuk antrean pelatihan ulang.</strong> Tetap tidak terdeteksi dalam batas aman contamination.</p>
+    {% if boleh_model and katalog_siap() and r.status != 'selesai' and h.aliran %}
+    <form method="post" action="{{ url_for('deteksi.terapkan_umpan_balik', ub_id=r.id) }}" class="aksi-form">
+      <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+      <input type="hidden" name="mode_terapkan" value="anomali">
+      <button type="submit" class="utama sedang tombol-anomali">Terapkan adaptasi pola anomali sekarang</button>
+    </form>
+    {% endif %}
     {% endif %}
     <p class="catatan">Jalankan di laptop: unduh kasus JSON → <code>latih_model.py fitur.parquet --keluar model_baru.joblib --umpan-balik kasus_pelatihan_ulang.json</code>.</p>
   {% elif h.status == 'selesai' %}
@@ -84,6 +120,65 @@ sudo systemctl restart nids-deteksi</pre>
   {% endif %}
   {% if r.status == 'selesai' %}
     <p><span class="lencana ok">selesai</span> {{ r.selesai_utc|wita }} WITA{% if r.catatan_selesai %} · {{ r.catatan_selesai }}{% endif %}</p>
+  {% endif %}
+
+  {% if model_diterapkan %}
+  <div class="model-hero atas-jarak">
+    <div class="model-hero-judul">
+      <strong>{{ model_diterapkan.nama or model_diterapkan.versi }}</strong>
+      <span class="lencana model">{{ model_diterapkan.versi }}</span>
+      {% if model_aktif_katalog %}<span class="lencana ok">Aktif</span>{% else %}<span class="lencana netral">Tersimpan</span>{% endif %}
+      <span class="wz-tag">Mode: {{ mode_label }}</span>
+    </div>
+    <div class="model-meta-bar">
+      {% if model_diterapkan.dilatih_utc %}<span><strong>Dilatih:</strong> {{ model_diterapkan.dilatih_utc|wita }} WITA</span>{% endif %}
+      <span><strong>Jendela:</strong> {{ model_diterapkan.jendela_detik }} detik</span>
+      {% if model_diterapkan.jumlah_aliran_latih %}<span><strong>Aliran latih:</strong> {{ model_diterapkan.jumlah_aliran_latih|angka }}{% if model_diterapkan.jumlah_sumber_intens %} (-{{ model_diterapkan.jumlah_sumber_intens }} intens){% endif %}</span>{% endif %}
+      {% if model_diterapkan.induk %}<span><strong>Turunan dari:</strong> <code class="mono">{{ model_diterapkan.induk }}</code></span>{% endif %}
+    </div>
+    <div class="submodel-grid">
+      <div class="submodel-box">
+        <div class="submodel-kepala">
+          <div><span class="submodel-nama">IF-Flow</span> <span class="redup">· {{ model_diterapkan.A.jumlah_fitur }} fitur aliran</span></div>
+        </div>
+        <dl class="submodel-metrik">
+          <div><dt>Contamination</dt><dd>{{ model_diterapkan.A.contamination|persen(2) if model_diterapkan.A.contamination is not none else 'manual' }}</dd></div>
+          <div><dt>Ambang skor</dt><dd class="mono">{{ model_diterapkan.A.ambang|desimal(4) }}</dd></div>
+          <div><dt>Transformasi</dt><dd class="mono">{{ 'signed log1p' if model_diterapkan.A.transformasi == 'log' else (model_diterapkan.A.transformasi or 'standar') }}</dd></div>
+        </dl>
+      </div>
+      <div class="submodel-box">
+        <div class="submodel-kepala">
+          <div><span class="submodel-nama">IF-Agg</span> <span class="redup">· {{ model_diterapkan.C.jumlah_fitur }} fitur agregasi ({{ model_diterapkan.jendela_detik }} dtk)</span></div>
+        </div>
+        <dl class="submodel-metrik">
+          <div><dt>Contamination</dt><dd>{{ model_diterapkan.C.contamination|persen(2) if model_diterapkan.C.contamination is not none else 'manual' }}</dd></div>
+          <div><dt>Ambang skor</dt><dd class="mono">{{ model_diterapkan.C.ambang|desimal(4) }}</dd></div>
+          <div><dt>Transformasi</dt><dd class="mono">{{ 'signed log1p' if model_diterapkan.C.transformasi == 'log' else (model_diterapkan.C.transformasi or 'standar') }}</dd></div>
+        </dl>
+      </div>
+    </div>
+    {% if model_diterapkan.riwayat_ambang %}
+    <details class="catatan-lipat" open>
+      <summary>Riwayat penyesuaian ambang ({{ model_diterapkan.riwayat_ambang|length }} perubahan)</summary>
+      <ul class="poin lipat-poin">
+        {% for ra in model_diterapkan.riwayat_ambang %}
+        <li><strong>{{ ra.model|nama_model }}</strong>: <span class="mono">{{ ra.dari|desimal(4) }}</span> → <span class="mono">{{ ra.ke|desimal(4) }}</span>{% if ra.contamination is defined and ra.contamination is not none %} <span class="redup">(contamination {{ ra.contamination|persen(2) }})</span>{% endif %}</li>
+        {% endfor %}
+      </ul>
+    </details>
+    {% endif %}
+    {% if model_diterapkan.adaptasi %}
+    <details class="catatan-lipat" open>
+      <summary>Aturan adaptasi pola ({{ model_diterapkan.adaptasi|length }} aturan)</summary>
+      <ul class="poin lipat-poin">
+        {% for at in model_diterapkan.adaptasi %}
+        <li><strong>{{ 'Anomali' if at.label == 'anomali' else 'Normal' }}</strong> ({{ at.src_ip or '-' }}, mode <span class="mono">{{ at.mode_cocok or 'vektor' }}</span>): {{ at.keterangan or 'adaptasi fitur' }}</li>
+        {% endfor %}
+      </ul>
+    </details>
+    {% endif %}
+  </div>
   {% endif %}
 
   {% if boleh_lapor %}

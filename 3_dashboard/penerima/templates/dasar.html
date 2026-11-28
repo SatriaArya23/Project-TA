@@ -7,6 +7,7 @@
 <title>{% block judul %}Dashboard{% endblock %} · ASUNA NIDS</title>
 <script src="{{ aset('tema.js') }}"></script>
 <script src="{{ aset('grafik.js') }}" defer></script>
+<script src="{{ aset('ai.js') }}" defer></script>
 <link rel="stylesheet" href="{{ aset('gaya.css') }}">
 </head>
 {% macro ikon(nama) -%}
@@ -32,6 +33,7 @@
   ('Anomali', 'deteksi.anomali', ('deteksi.anomali', 'deteksi.hampir', 'deteksi.rincian_ip')),
   ('Model', 'deteksi.model', ('deteksi.model',)),
   ('Umpan balik', 'deteksi.umpan_balik', ('deteksi.umpan_balik', 'deteksi.rincian_umpan_balik')),
+  ('Asisten AI', 'deteksi.ai_halaman', ('deteksi.ai_halaman',)),
   ('IP tepercaya', 'deteksi.tepercaya', ('deteksi.tepercaya',)),
   ('IP diblokir', 'deteksi.blokir', ('deteksi.blokir',)),
   ('Rekaman', 'web.beranda', ('web.beranda', 'web.berkas', 'web.hari')),

@@ -39,18 +39,19 @@
     {% if boleh_putuskan and antre %}<a class="tombol" href="{{ url_for('deteksi.ekspor_kasus') }}">Unduh {{ antre }} kasus pelatihan ulang (JSON)</a>{% endif %}
   </div>
   <div class="gulir"><table>
-    <thead><tr><th>#</th><th>Dibuat (WITA)</th><th>Jenis</th><th>IP sumber</th><th>Rentang kejadian (WITA)</th><th>Status</th><th>Pelapor</th></tr></thead>
+    <thead><tr><th>#</th><th>Dibuat (WITA)</th><th>Jenis</th><th>IP sumber</th><th>Rentang kejadian (WITA)</th><th>Status</th><th>Pelapor</th><th>Aksi</th></tr></thead>
     <tbody>
     {% for r in rows %}<tr>
-      <td><a href="{{ url_for('deteksi.rincian_umpan_balik', ub_id=r.id) }}">#{{ r.id }}</a></td>
+      <td class="mono">#{{ r.id }}</td>
       <td>{{ r.dibuat_utc|wita }}</td>
       <td>{{ 'Serangan lolos' if r.jenis == 'lolos' else 'Alarm palsu' }}</td>
-      <td class="mono">{{ r.src_ip }}</td>
+      <td class="mono"><a href="{{ url_for('deteksi.rincian_ip', ip=r.src_ip) }}">{{ r.src_ip }}</a></td>
       <td>{{ r.mulai_us|wita_us }} – {{ r.akhir_us|wita_us }}</td>
       <td><span class="lencana status-{{ r.status }}">{{ r.status|teks_status }}</span></td>
       <td class="redup">{{ r.pelapor }}</td>
+      <td><a class="tombol" href="{{ url_for('deteksi.rincian_umpan_balik', ub_id=r.id) }}">Detail</a></td>
     </tr>{% else %}
-      <tr><td colspan="7" class="redup">Belum ada laporan.</td></tr>
+      <tr><td colspan="8" class="redup">Belum ada laporan.</td></tr>
     {% endfor %}
     </tbody>
   </table></div>

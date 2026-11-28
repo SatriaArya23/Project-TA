@@ -1,0 +1,10 @@
+[Unit]
+Description=Kendali layanan traffic-recorder dan traffic-uploader dari dashboard ASUNA
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=nids
+ExecStart=/opt/nids-deteksi/venv/bin/python /opt/nids-deteksi/rekam_kendali.py
+UMask=0007

@@ -1,116 +1,257 @@
 {% extends "dasar.html" %}
 {% from "_grafik.html" import bilah %}
-{% block judul %}Model & evaluasi{% endblock %}
+{% block judul %}Model &amp; evaluasi{% endblock %}
 {% block isi %}
+{% if ok_pesan %}<p class="berhasil">{{ ok_pesan }}</p>{% endif %}
+{% if galat_pesan %}<p class="galat">{{ galat_pesan }}</p>{% endif %}
+
 {% if not info %}
-<section class="wz-card"><p class="redup">Belum ada model yang tercatat di log deteksi.</p></section>
+<section class="wz-card"><p class="redup">Belum ada model yang tercatat.</p></section>
 {% else %}
 
+{# ================================================================ 1. RINGKASAN RINGKAS MODEL AKTIF #}
 <dl class="wz-strip">
   <div class="wz-strip-item">
-    <dt>Versi aktif</dt>
+    <dt>Model aktif</dt>
+    <dd>{{ info.nama or info.versi }}</dd>
+  </div>
+  <div class="wz-strip-item">
+    <dt>Versi</dt>
     <dd class="mono">{{ info.versi }}</dd>
   </div>
   <div class="wz-strip-item">
-    <dt>Dilatih</dt>
-    <dd>{{ info.dilatih_utc|wita if info.dilatih_utc else '—' }} WITA</dd>
+    <dt>Mode</dt>
+    <dd>{{ mode_label.get(mode_aktif, mode_aktif) }}{% if siap and katalog.model and not sinkron %} <span class="lencana waspada">memuat…</span>{% endif %}</dd>
   </div>
   <div class="wz-strip-item">
-    <dt>Jendela agregasi</dt>
-    <dd>{{ info.jendela_detik }} detik</dd>
+    <dt>IF-Flow (68 fitur)</dt>
+    <dd class="mono">{{ info.A.contamination|persen(2) if info.A.contamination is not none else 'manual' }} <span class="redup">({{ info.A.ambang|desimal(4) }})</span></dd>
   </div>
-  {% if info.jumlah_aliran_latih %}
   <div class="wz-strip-item">
-    <dt>Aliran latih</dt>
-    <dd>{{ info.jumlah_aliran_latih|angka }}{% if info.jumlah_sumber_intens %} <span class="redup">(-{{ info.jumlah_sumber_intens }} intens)</span>{% endif %}</dd>
+    <dt>IF-Agg (7 fitur · {{ info.jendela_detik }} dtk)</dt>
+    <dd class="mono">{{ info.C.contamination|persen(2) if info.C.contamination is not none else 'manual' }} <span class="redup">({{ info.C.ambang|desimal(4) }})</span></dd>
   </div>
-  {% endif %}
   {% if info.versi_sklearn %}
   <div class="wz-strip-item">
     <dt>scikit-learn</dt>
     <dd class="mono">{{ info.versi_sklearn }}</dd>
   </div>
   {% endif %}
-  {% if info.periode_latih %}
-  <div class="wz-strip-item">
-    <dt>Data latih (UTC)</dt>
-    <dd class="mono">{{ info.periode_latih[0][:16] }} – {{ info.periode_latih[1][:16] }}</dd>
-  </div>
-  {% endif %}
 </dl>
 
-<div class="model-grid">
-  <section class="kartu-kotak">
-    <div class="kartu-judul">
-      <h2>Model aktif</h2>
-      <span class="lencana ok mono">{{ info.versi }}</span>
-    </div>
-    <dl class="meta-grid">
-      <div class="meta-item">
-        <dt>Dilatih</dt>
-        <dd>{{ info.dilatih_utc|wita if info.dilatih_utc else '—' }} WITA</dd>
+{# ================================================================ 2. KENDALI MODE & UNGGAH MODEL (ADMIN) #}
+{% if siap and katalog.model %}
+  {% if boleh_model %}
+  <div class="wz-grid-2">
+    <section class="wz-card">
+      <div class="wz-card-head">
+        <h2>Mode deteksi aktif</h2>
+        <span class="wz-tag">{{ mode_label.get(mode_aktif, mode_aktif) }}</span>
       </div>
-      <div class="meta-item">
-        <dt>Jendela agregasi</dt>
-        <dd>{{ info.jendela_detik }} detik</dd>
-      </div>
-      {% if info.periode_latih %}
-      <div class="meta-item lebar">
-        <dt>Rentang data latih</dt>
-        <dd class="mono">{{ info.periode_latih[0][:16] }} – {{ info.periode_latih[1][:16] }} UTC</dd>
-      </div>
-      {% endif %}
-      {% if info.jumlah_aliran_latih %}
-      <div class="meta-item lebar">
-        <dt>Aliran latih</dt>
-        <dd>{{ info.jumlah_aliran_latih|angka }} aliran
-          {% if info.cara_latih %}<span class="sub">{{ info.cara_latih }}{% if info.jumlah_sumber_intens %} · {{ info.jumlah_sumber_intens }} sumber intens dikeluarkan{% endif %}</span>{% endif %}
-        </dd>
-      </div>
-      {% endif %}
-      {% if info.induk %}
-      <div class="meta-item">
-        <dt>Turunan dari</dt>
-        <dd class="mono">{{ info.induk }}</dd>
-      </div>
-      {% endif %}
-      {% if info.alasan %}
-      <div class="meta-item">
-        <dt>Alasan perubahan</dt>
-        <dd>{{ info.alasan }}</dd>
-      </div>
-      {% endif %}
-    </dl>
-  </section>
+      <form method="post" class="model-form">
+        <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+        <input type="hidden" name="aksi" value="mode">
+        <div class="mode-opsi">
+          {% for kode, judul, ket in mode_opsi %}
+          <label class="mode-kartu{% if mode_aktif == kode %} terpilih{% endif %}">
+            <input type="radio" name="mode" value="{{ kode }}" {% if mode_aktif == kode %}checked{% endif %}>
+            <span class="mode-isi">
+              <span class="mode-judul">{{ judul }}</span>
+              <span class="mode-ket">{{ ket }}</span>
+            </span>
+          </label>
+          {% endfor %}
+        </div>
+        <div class="aksi-form">
+          <button type="submit" class="utama sedang">Simpan mode</button>
+        </div>
+      </form>
+    </section>
 
-  <section class="kartu-kotak">
-    <div class="kartu-judul">
-      <h2>Dual-IF (IF-Flow + IF-Agg)</h2>
-      <span class="wz-tag">Aturan: IF-Flow atau IF-Agg</span>
-    </div>
-    <div class="tabel-ringkas">
-      <table>
-        <thead><tr><th>Model</th><th class="kanan">Fitur</th><th class="kanan">Contamination</th><th class="kanan">Ambang skor</th></tr></thead>
-        <tbody>
-          <tr><td><span class="tebal">IF-Flow</span> <span class="redup">· aliran</span></td><td class="kanan">{{ info.A.jumlah_fitur }}</td><td class="kanan">{{ info.A.contamination if info.A.contamination is not none else 'manual' }}</td><td class="kanan mono">{{ info.A.ambang|desimal(4) }}</td></tr>
-          <tr><td><span class="tebal">IF-Agg</span> <span class="redup">· agregasi</span></td><td class="kanan">{{ info.C.jumlah_fitur }}</td><td class="kanan">{{ info.C.contamination if info.C.contamination is not none else 'manual' }}</td><td class="kanan mono">{{ info.C.ambang|desimal(4) }}</td></tr>
-        </tbody>
-      </table>
-    </div>
-    <p class="info-baris">Anomali ditandai bila skor <strong>IF-Flow</strong> atau <strong>IF-Agg</strong> melewati ambang.</p>
-    {% if info.riwayat_ambang %}
-    <h3>Riwayat penyesuaian ambang</h3>
-    <ul class="poin">{% for r in info.riwayat_ambang %}<li>{{ r.model|nama_model }}: <span class="mono">{{ r.dari|desimal(4) }}</span> → <span class="mono">{{ r.ke|desimal(4) }}</span></li>{% endfor %}</ul>
-    {% endif %}
-  </section>
-</div>
+    <section class="wz-card">
+      <div class="wz-card-head">
+        <h2>Tambah / unggah model baru</h2>
+        <span class="wz-tag">Maks {{ maks_mb }} MB · .joblib</span>
+      </div>
+      {% if status_impor %}
+      <p class="{{ 'berhasil' if status_impor.status == 'berhasil' else ('galat' if status_impor.status == 'gagal' else 'info-baris') }}">
+        <strong>Status impor ({{ status_impor.status }}):</strong> {{ status_impor.pesan }}
+        {% if status_impor.peringatan %}<br><small>{{ status_impor.peringatan|join('; ') }}</small>{% endif %}
+      </p>
+      {% endif %}
+      <form method="post" action="{{ url_for('deteksi.unggah_model') }}" enctype="multipart/form-data" class="model-form">
+        <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+        <label>Berkas model (.joblib)
+          <input name="berkas" type="file" accept=".joblib" required>
+        </label>
+        <div class="model-form-grid">
+          <label>Nama profil <span class="redup">(opsional)</span>
+            <input name="nama" maxlength="80" placeholder="mis. Model Eksperimen v2">
+          </label>
+          <label>Catatan <span class="redup">(opsional)</span>
+            <input name="alasan" maxlength="200" placeholder="mis. latih rekaman 14 hari">
+          </label>
+        </div>
+        <label>SHA-256 <span class="redup">(opsional)</span>
+          <input name="sha256" maxlength="64" class="mono" placeholder="64 karakter hex">
+        </label>
+        <label class="cek-baris">
+          <input type="checkbox" name="aktifkan" value="1">
+          <span>Langsung aktifkan setelah validasi</span>
+        </label>
+        <div class="aksi-form">
+          <button type="submit" class="utama sedang">Unggah &amp; validasi model</button>
+        </div>
+      </form>
+    </section>
+  </div>
+  {% else %}
+  <p class="catatan atas">Pengaturan mode, unggah model, dan pergantian versi model hanya dapat dilakukan oleh administrator.</p>
+  {% endif %}
+{% endif %}
 
-{% if info.evaluasi and info.evaluasi.bagian %}
+{# ================================================================ 3. DAFTAR & RIWAYAT VERSI MODEL (TERPADU) #}
+<section class="wz-card">
+  <div class="wz-card-head">
+    <h2>Riwayat versi model</h2>
+    <span class="wz-tag">{{ daftar_model|length }} versi</span>
+  </div>
+  <div class="wz-inner-table">
+    <table>
+      <thead>
+        <tr>
+          <th>Model &amp; versi</th>
+          <th>Data latih</th>
+          <th>Ambang (IF-Flow / IF-Agg)</th>
+          <th class="kanan">Aliran dinilai</th>
+          <th>Keterangan</th>
+          <th>Status</th>
+          {% if siap and boleh_model %}<th>Aksi</th>{% endif %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in daftar_model %}
+        <tr class="{% if m.aktif %}baris-aktif{% endif %}">
+          <td>
+            <div class="tebal">{{ m.nama }}</div>
+            <div class="mono kecil redup">{{ m.versi }}{% if m.induk %} ← {{ m.induk }}{% endif %}</div>
+          </td>
+          <td>
+            {% if m.jumlah_aliran_latih %}{{ m.jumlah_aliran_latih|angka }} aliran{% else %}—{% endif %}
+            {% if m.periode_latih %}<div class="mono kecil redup">{{ m.periode_latih[0][:10] }} – {{ m.periode_latih[1][:10] }}</div>{% endif %}
+          </td>
+          <td class="mono">
+            <div>IF-Flow: {{ m.A.contamination|persen(2) if m.A.contamination is not none else 'manual' }} <span class="redup">({{ m.A.ambang|desimal(4) }})</span></div>
+            <div>IF-Agg: {{ m.C.contamination|persen(2) if m.C.contamination is not none else 'manual' }} <span class="redup">({{ m.C.ambang|desimal(4) }})</span></div>
+          </td>
+          <td class="kanan">
+            {% if m.aliran %}
+              {{ m.aliran|angka }}
+              <div class="kecil redup">{{ m.ditandai|angka }} ({{ (m.ditandai / m.aliran)|persen }})</div>
+            {% else %}—{% endif %}
+          </td>
+          <td class="redup">{{ m.alasan }}</td>
+          <td>
+            {% if m.aktif %}
+              <span class="lencana ok">Aktif</span>
+            {% else %}
+              <span class="lencana netral">Tersimpan</span>
+            {% endif %}
+          </td>
+          {% if siap and boleh_model %}
+          <td>
+            {% if m.dalam_katalog %}
+            <div class="aksi-baris">
+              {% if not m.aktif %}
+              <form method="post">
+                <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+                <input type="hidden" name="aksi" value="aktifkan">
+                <input type="hidden" name="versi" value="{{ m.versi }}">
+                <button type="submit">Aktifkan</button>
+              </form>
+              {% endif %}
+              <details class="nama-popover">
+                <summary>Ubah nama</summary>
+                <form method="post" class="nama-popover-form">
+                  <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+                  <input type="hidden" name="aksi" value="nama">
+                  <input type="hidden" name="versi" value="{{ m.versi }}">
+                  <input name="nama" maxlength="80" value="{{ m.nama }}" placeholder="Nama profil" required>
+                  <button type="submit">Simpan</button>
+                </form>
+              </details>
+              {% if not m.aktif and katalog.model|length > 1 %}
+              <form method="post">
+                <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+                <input type="hidden" name="aksi" value="hapus">
+                <input type="hidden" name="versi" value="{{ m.versi }}">
+                <button type="submit" class="bahaya">Hapus</button>
+              </form>
+              {% endif %}
+            </div>
+            {% else %}—{% endif %}
+          </td>
+          {% endif %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+{% if aturan_aktif %}
 <section class="model-seksi">
+  <div class="seksi-kepala">
+    <h2>Aturan adaptasi aktif <span class="lencana model">{{ aturan_aktif|length }} aturan</span></h2>
+  </div>
+  <div class="gulir-kotak">
+    <table>
+      <thead>
+        <tr>
+          <th>Keputusan</th>
+          <th>IP asal contoh</th>
+          <th>Fokus fitur</th>
+          <th>Mode</th>
+          <th>Port tujuan</th>
+          <th>Keterangan</th>
+          <th>Ditambahkan (WITA)</th>
+          {% if siap and boleh_model %}<th>Aksi</th>{% endif %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for at in aturan_aktif %}
+        <tr>
+          <td><span class="lencana {{ 'mati' if at.label == 'anomali' else 'ok' }}">{{ 'Anomali' if at.label == 'anomali' else 'Normal' }}</span></td>
+          <td class="mono">{{ at.src_ip or '—' }}</td>
+          <td class="mono">{{ at.fokus or '—' }}</td>
+          <td class="mono">{{ at.mode_cocok or 'vektor' }}</td>
+          <td class="mono">{{ at.dst_ports|join(', ') if at.dst_ports else 'semua' }}</td>
+          <td class="teks-bungkus">{{ at.keterangan or '—' }}</td>
+          <td class="nowrap">{{ at.waktu_utc|wita if at.waktu_utc else '—' }}{% if at.oleh %} · {{ at.oleh }}{% endif %}</td>
+          {% if siap and boleh_model %}
+          <td>
+            <form method="post" class="aksi-baris">
+              <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+              <input type="hidden" name="aksi" value="hapus_adaptasi">
+              <input type="hidden" name="id_aturan" value="{{ at.id }}">
+              <button type="submit" class="bahaya">Hapus</button>
+            </form>
+          </td>
+          {% endif %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+
+{# ================================================================ 4. EVALUASI RANCANGAN #}
+{% if info.evaluasi and info.evaluasi.bagian %}
   {% for b in info.evaluasi.bagian %}
-  <div class="kartu-kotak-putih">
-    <div class="kartu-judul">
-      <h2>Hasil evaluasi · {{ b.judul|replace('Rancangan A+C', 'Rancangan Dual-IF (IF-Flow + IF-Agg)') }}</h2>
+  <section class="wz-card">
+    <div class="wz-card-head">
+      <h2>Evaluasi rancangan · {{ b.judul|replace('Rancangan A+C', 'Rancangan Dual-IF (IF-Flow + IF-Agg)') }}</h2>
       <span class="wz-tag">CIC-IDS2017</span>
     </div>
 
@@ -158,15 +299,14 @@
       <p>{{ b.keterangan }}</p>
     </details>
     {% endif %}
-  </div>
+  </section>
   {% endfor %}
-</section>
 {% endif %}
 
 {% if info.evaluasi_umpan_balik %}
 {% set e = info.evaluasi_umpan_balik %}
-<section class="kartu-kotak">
-  <div class="kartu-judul">
+<section class="wz-card">
+  <div class="wz-card-head">
     <h2>Pelatihan ulang dari umpan balik</h2>
     <span class="wz-tag">{{ e.jumlah_lolos }} lolos · {{ e.jumlah_palsu }} palsu</span>
   </div>
@@ -179,23 +319,5 @@
   </dl>
 </section>
 {% endif %}
-
-<section class="wz-card">
-  <div class="wz-card-head">
-    <h2>Riwayat versi model</h2>
-    <span class="wz-tag">{{ riwayat|length }} versi</span>
-  </div>
-  <div class="wz-inner-table"><table>
-    <thead><tr><th>Versi</th><th>Aktif sejak (WITA)</th><th>Turunan dari</th><th class="kanan">Aliran dinilai</th><th class="kanan">Ditandai</th><th>Keterangan</th></tr></thead>
-    <tbody>{% for r in riwayat %}<tr>
-      <td class="mono">{{ r.versi }}{% if loop.first %} <span class="lencana ok">aktif</span>{% endif %}</td>
-      <td>{{ r.aktif_sejak_us|wita_us }}</td>
-      <td class="mono redup">{{ r.info.induk or '—' }}</td>
-      <td class="kanan">{{ r.aliran|angka }}</td>
-      <td class="kanan">{{ r.ditandai|angka }} <span class="redup">({{ (r.ditandai / r.aliran if r.aliran else 0)|persen }})</span></td>
-      <td class="redup">{{ r.info.alasan or ('pelatihan ulang' if r.info.evaluasi_umpan_balik else 'pelatihan awal') }}</td>
-    </tr>{% endfor %}</tbody>
-  </table></div>
-</section>
 {% endif %}
 {% endblock %}

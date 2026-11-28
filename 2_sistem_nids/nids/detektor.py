@@ -14,12 +14,15 @@ terhadap server. Alamat server diambil dari model (server_ip saat pelatihan) ata
 Aliran dari IP tepercaya (nids.tepercaya, diatur administrator di dashboard) tetap dinilai dan dicatat,
 tetapi tidak ditandai anomali sehingga juga tidak memicu notifikasi.
 """
+import os
+
+from .model import ModelDeteksi
 from .pipa import Pipa
 
 
 class Detektor:
     def __init__(self, model, log=None, notifikasi=None, ukuran_batch=256, jeda_batch_detik=1.0,
-                 waktu_log="sekarang", server_ip=None, tepercaya=None):
+                 waktu_log="sekarang", server_ip=None, tepercaya=None, katalog=None, berkas_model=None):
         """waktu_log='sekarang' (deteksi langsung: t_log = jam dinding) atau 'selesai'
         (putar ulang: t_log = waktu aliran selesai disusun menurut rekaman)."""
         self.model, self.log, self.notifikasi = model, log, notifikasi
@@ -30,16 +33,45 @@ class Detektor:
         self.server_ip = set(server_ip if server_ip is not None else info.get("server_ip") or [])
         self.tampung, self.t_tampung = [], None
         self.tepercaya = tepercaya                   # DaftarTepercaya atau None
+        self.katalog = katalog                       # PengawasModel atau None (hot-reload model/mode/ambang)
+        self._berkas_model = os.path.abspath(berkas_model) if berkas_model else None
         self.jumlah_aliran = self.jumlah_anomali = self.jumlah_keluar = self.jumlah_tepercaya = 0
         self._sapu_terakhir = None
         if log is not None and hasattr(model, "ringkas"):
             log.catat_model(model.ringkas())
 
+    def periksa_katalog(self, paksa=False):
+        """Muat ulang model/ambang/mode dari katalog bila diubah administrator lewat dashboard."""
+        if self.katalog is None:
+            return False
+        ubah = self.katalog.periksa(paksa=paksa)
+        if ubah is None:
+            return False
+        entri, mode, path_joblib = ubah
+        try:
+            abs_baru = os.path.abspath(path_joblib)
+            if self._berkas_model != abs_baru:
+                model_baru = ModelDeteksi.muat(abs_baru, mode=mode)
+                model_baru.terapkan_katalog(entri, mode=mode)
+                self.model = model_baru
+                self._berkas_model = abs_baru
+                if model_baru.jendela_detik != self.pipa.jendela_detik:
+                    self.pipa = Pipa(model_baru.jendela_detik)
+            else:
+                self.model.terapkan_katalog(entri, mode=mode)
+            if self.log is not None and hasattr(self.model, "ringkas"):
+                self.log.catat_model(self.model.ringkas())
+                self.log.status(model_versi=self.model.versi, model_mode=self.model.mode)
+            return True
+        except Exception:
+            return False
+
     def paket(self, p, kini_us=None):
         self._terima(self.pipa.paket(p), kini_us if kini_us is not None else p.ts)
 
     def detak(self, kini_us):
-        """Dipanggil berkala (±1 detik): tutup aliran kedaluwarsa dan nilai tampungan yang menunggu."""
+        """Dipanggil berkala (±1 detik): tutup aliran kedaluwarsa, periksa perubahan model, dan nilai tampungan."""
+        self.periksa_katalog(paksa=False)
         if self._sapu_terakhir is None or kini_us - self._sapu_terakhir >= 1_000_000:
             self._sapu_terakhir = kini_us
             self._terima(self.pipa.sapu(kini_us), kini_us)
@@ -68,7 +100,13 @@ class Detektor:
         if not self.tampung:
             return []
         aliran, self.tampung = self.tampung, []
-        hasil = list(self.model.nilai(aliran))
+        if hasattr(self.model, "nilai_detail"):
+            hasil, xa, xc = self.model.nilai_detail(aliran)
+            hasil = list(hasil)
+            vektor = (xa, xc)
+        else:
+            hasil = list(self.model.nilai(aliran))
+            vektor = None
         self.jumlah_aliran += len(aliran)
         if self.tepercaya is not None:
             self.tepercaya.muat_ulang(paksa=False)
@@ -79,7 +117,8 @@ class Detektor:
         anomali = []
         if self.log is not None:
             anomali = self.log.catat(aliran, hasil, self.model,
-                                     waktu_log_us="selesai" if self.waktu_log == "selesai" else None)
+                                     waktu_log_us="selesai" if self.waktu_log == "selesai" else None,
+                                     vektor=vektor)
         else:
             anomali = [(None, f, h) for f, h in zip(aliran, hasil) if h[2]]
         self.jumlah_anomali += len(anomali)

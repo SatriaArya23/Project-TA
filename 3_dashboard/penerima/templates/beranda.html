@@ -2,6 +2,59 @@
 {% from "_grafik.html" import batang %}
 {% block judul %}Rekaman terkini{% endblock %}
 {% block isi %}
+{% if ok_pesan %}<p class="berhasil">{{ ok_pesan }}</p>{% endif %}
+{% if galat_pesan %}<p class="galat">{{ galat_pesan }}</p>{% endif %}
+
+<section class="wz-card">
+  <div class="wz-card-head">
+    <h2>Kontrol perekaman lalu lintas</h2>
+    {% if rekam_st and rekam_st.aktif %}
+      <span class="lencana ok">Sedang merekam{% if rekam_st.durasi_label %} · {{ rekam_st.durasi_label }}{% endif %}</span>
+    {% elif rekam_st and not rekam_st.terpasang %}
+      <span class="lencana mati">Perekam belum terpasang</span>
+    {% else %}
+      <span class="lencana netral">Berhenti</span>
+    {% endif %}
+  </div>
+  {% if rekam_st %}
+  <div class="model-meta-bar rekam-meta">
+    {% if rekam_st.aktif and rekam_st.mulai_utc %}<span><strong>Mulai:</strong> {{ rekam_st.mulai_utc|wita }} WITA</span>{% endif %}
+    {% if rekam_st.aktif and rekam_st.batas_utc %}<span><strong>Berhenti otomatis:</strong> {{ rekam_st.batas_utc|wita }} WITA</span>{% endif %}
+    {% if rekam_st.pesan %}<span><strong>Status:</strong> {{ rekam_st.pesan }}</span>{% endif %}
+    {% if rekam_st.diperbarui_utc %}<span><strong>Diperbarui:</strong> {{ rekam_st.diperbarui_utc|wita }} WITA</span>{% endif %}
+  </div>
+  {% endif %}
+  {% if boleh_rekam and rekam_siap %}
+  <div class="rekam-aksi">
+    {% if rekam_st and rekam_st.aktif %}
+    <form method="post" action="{{ url_for('web.kendali_rekaman') }}" class="aksi-baris">
+      <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+      <input type="hidden" name="aksi" value="berhenti">
+      <button type="submit" class="bahaya">Hentikan &amp; simpan rekaman sekarang</button>
+    </form>
+    {% else %}
+    <form method="post" action="{{ url_for('web.kendali_rekaman') }}" class="saring">
+      <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+      <input type="hidden" name="aksi" value="mulai">
+      <label>Durasi perekaman
+        <select name="durasi">
+          {% for kode, label, _d in durasi_rekam %}
+          <option value="{{ kode }}" {% if kode == '24j' %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Catatan sesi <span class="redup">(opsional)</span>
+        <input name="catatan" maxlength="120" placeholder="mis. rekam lalu lintas hari ramai">
+      </label>
+      <button type="submit" class="utama sedang">Mulai rekam lalu lintas</button>
+    </form>
+    {% endif %}
+  </div>
+  {% elif not boleh_rekam %}
+  <p class="catatan">Hanya administrator yang dapat memulai atau menghentikan perekaman lalu lintas.</p>
+  {% endif %}
+</section>
+
 <div class="grid">
 {% for r in ringkasan %}
   <section class="panel-kartu">

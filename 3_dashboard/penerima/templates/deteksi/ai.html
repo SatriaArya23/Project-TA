@@ -1,0 +1,167 @@
+{% extends "dasar.html" %}
+{% block judul %}Asisten AI keamanan{% endblock %}
+{% block isi %}
+{% if not siap %}<p class="peringatan">Folder konfigurasi AI bersama belum ada di server ini; jalankan <code>pasang-deteksi.sh</code> terlebih dahulu.</p>{% endif %}
+{% if galat_pesan %}<p class="galat">{{ galat_pesan }}</p>{% endif %}
+{% if ok_pesan %}<p class="berhasil">{{ ok_pesan }}</p>{% endif %}
+
+<section class="panel-kartu ai-chat-card">
+  <div class="panel-kepala">
+    <h2>Obrolan Asisten AI <span class="lencana netral">{{ riwayat_chat|length }} pesan</span></h2>
+    {% if boleh_pakai_ai and riwayat_chat %}
+    <form method="post" class="aksi-baris">
+      <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+      <input type="hidden" name="aksi" value="chat_baru">
+      <button type="submit">Chat baru</button>
+    </form>
+    {% endif %}
+  </div>
+
+  {% if boleh_pakai_ai and ai_list.profil %}
+  <div class="ai-chip-bar">
+    <button type="button" class="ai-chip" data-ai-contoh="Ringkas kejadian keamanan paling penting 24 jam terakhir.">Ringkas 24 jam</button>
+    <button type="button" class="ai-chip" data-ai-contoh="IP mana yang paling berbahaya saat ini dan apa tindakan terbaiknya?">IP paling berbahaya</button>
+    <button type="button" class="ai-chip" data-ai-contoh="Bagaimana kondisi lalu lintas hampir anomali yang perlu diverifikasi?">Cek hampir anomali</button>
+    <button type="button" class="ai-chip" data-ai-contoh="Berikan rekomendasi aturan blokir dan whitelist dari ringkasan saat ini.">Rekomendasi blokir</button>
+  </div>
+  {% endif %}
+
+  <div class="ai-chat-riwayat">
+    {% for m in riwayat_chat %}
+    <div class="ai-pesan ai-pesan-{{ m.role }}">
+      <div class="ai-pesan-meta">
+        <strong>{{ 'Anda' if m.role == 'user' else ('Asisten · ' + (m.koneksi_nama or 'AI')) }}</strong>
+        {% if m.model %}<span class="lencana model">{{ m.model }}</span>{% endif %}
+        <span class="redup">{{ m.waktu_utc|wita }}</span>
+      </div>
+      <div class="ai-teks">{{ m.konten }}</div>
+    </div>
+    {% else %}
+    <p class="redup">Belum ada percakapan aktif. Tambahkan API AI di bawah, lalu pilih penyedia dan modelnya langsung dari menu obrolan.</p>
+    {% endfor %}
+  </div>
+
+  {% if boleh_pakai_ai %}
+  <form method="post" class="ai-composer" data-ai-pemilih data-ai-profil='{{ ai_list.profil|tojson }}'>
+    <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+    <input type="hidden" name="aksi" value="tanya">
+    <div class="ai-pemilih">
+      <label>Koneksi API
+        <select name="profil_id" {% if not ai_list.profil %}disabled{% endif %}>
+          {% for pr in ai_list.profil %}
+          <option value="{{ pr.id }}" {% if (isi.profil_id == pr.id) or (not isi.profil_id and pr.aktif) %}selected{% endif %}>{{ pr.nama }} ({{ pr.provider_label }})</option>
+          {% else %}
+          <option value="">Belum ada koneksi AI</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Model AI
+        <select name="model_pilih" data-model-awal="{{ isi.model_pilih }}" {% if not ai_list.profil %}disabled{% endif %}>
+          <option value="">—</option>
+        </select>
+      </label>
+      <label data-ai-kustom-bungkus hidden>ID model lain
+        <input name="model_kustom" value="" maxlength="120" class="mono" placeholder="mis. gpt-4.1-mini / gemini-2.5-pro">
+      </label>
+    </div>
+    <div class="ai-composer-baris">
+      <textarea name="pertanyaan" rows="2" maxlength="1000" required
+        placeholder="Tanyakan ringkasan serangan, analisis IP, atau rekomendasi mitigasi…"
+        {% if not ai_list.profil %}disabled{% endif %}>{{ isi.tanya }}</textarea>
+      <button type="submit" class="utama sedang" {% if not ai_list.profil %}disabled{% endif %}>Kirim</button>
+    </div>
+  </form>
+  {% else %}
+  <p class="redup">Hanya administrator dan analis yang dapat mengirim pertanyaan ke asisten AI.</p>
+  {% endif %}
+</section>
+
+<div class="panel-grid-2">
+  <section class="panel-kartu">
+    <div class="panel-kepala">
+      <h2>Koneksi API AI <span class="lencana netral">{{ ai_list.profil|length }} profil</span></h2>
+    </div>
+    <div class="gulir"><table>
+      <thead><tr><th>Nama</th><th>Provider</th><th>Model</th><th>Kunci</th><th>Status</th>{% if boleh_ai and siap %}<th>Aksi</th>{% endif %}</tr></thead>
+      <tbody>
+      {% for p in ai_list.profil %}
+        <tr {% if p.aktif %}class="baris-aktif"{% endif %}>
+          <td><strong>{{ p.nama }}</strong></td>
+          <td>{{ p.provider_label }}</td>
+          <td class="mono">{{ p.model }} <span class="lencana netral">{{ (p.models or [p.model])|length }}</span></td>
+          <td class="mono">{{ p.kunci_samar }}</td>
+          <td>{% if p.aktif %}<span class="lencana ok">Default</span>{% else %}<span class="lencana netral">Siap</span>{% endif %}{% if p.dari_env %} <span class="lencana netral">env</span>{% endif %}</td>
+          {% if boleh_ai and siap %}
+          <td>
+            {% if not p.dari_env %}
+            <div class="aksi-baris">
+              {% if not p.aktif %}
+              <form method="post">
+                <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="aksi" value="aktifkan"><input type="hidden" name="id" value="{{ p.id }}">
+                <button type="submit">Jadikan default</button>
+              </form>
+              {% endif %}
+              <form method="post">
+                <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="aksi" value="segarkan"><input type="hidden" name="id" value="{{ p.id }}">
+                <button type="submit">Muat ulang model</button>
+              </form>
+              <form method="post">
+                <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="aksi" value="uji"><input type="hidden" name="id" value="{{ p.id }}">
+                <button type="submit">Uji koneksi</button>
+              </form>
+              <form method="post">
+                <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="aksi" value="hapus"><input type="hidden" name="id" value="{{ p.id }}">
+                <button type="submit" class="bahaya">Hapus</button>
+              </form>
+            </div>
+            {% else %}
+            <span class="redup">variabel lingkungan</span>
+            {% endif %}
+          </td>
+          {% endif %}
+        </tr>
+      {% else %}
+        <tr class="kosong"><td colspan="6">Belum ada koneksi AI. Tambahkan API key penyedia AI di sebelah kanan.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+  </section>
+
+  {% if boleh_ai and siap %}
+  <section class="panel-kartu">
+    <div class="panel-kepala">
+      <h2>Tambah koneksi AI</h2>
+      <span class="lencana netral">OpenAI · Gemini · Claude · OpenAI-Compatible</span>
+    </div>
+    <form method="post" class="formulir">
+      <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+      <input type="hidden" name="aksi" value="tambah">
+      <label>Nama koneksi
+        <input name="nama" value="{{ isi.nama }}" required maxlength="60" class="penuh" placeholder="mis. OpenAI Utama atau Gemini Kantor">
+      </label>
+      <label>Penyedia AI (Provider)
+        <select name="provider" class="penuh">
+          {% for item in provider_opsi %}
+          <option value="{{ item[0] }}" {% if isi.provider == item[0] %}selected{% endif %}>{{ item[1] }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>API Key
+        <input type="password" name="api_key" required autocomplete="off" class="penuh" placeholder="sk-... / AIza... / sk-ant-...">
+      </label>
+      <label>Model default <span class="redup">(opsional — otomatis ambil daftar model dari API)</span>
+        <input name="model" value="{{ isi.model }}" maxlength="120" class="penuh mono" placeholder="Kosongkan untuk deteksi model otomatis">
+      </label>
+      <label>Base URL <span class="redup">(opsional, khusus OpenAI-Compatible / proxy)</span>
+        <input name="base_url" value="{{ isi.base_url }}" maxlength="240" class="penuh mono" placeholder="mis. https://api.groq.com/openai/v1">
+      </label>
+      <label class="cek-baris atas-jarak">
+        <input type="checkbox" name="aktifkan" value="1" {% if not ai_list.profil %}checked{% endif %}>
+        <span>Jadikan koneksi default</span>
+      </label>
+      <button type="submit" class="utama">Simpan &amp; muat model</button>
+    </form>
+  </section>
+  {% endif %}
+</div>
+{% endblock %}

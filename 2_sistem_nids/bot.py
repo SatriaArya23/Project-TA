@@ -28,9 +28,11 @@ import traceback
 from collections import deque
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from nids import asisten_ai                                       # noqa: E402
+from nids import audit_bersama                                    # noqa: E402
 from nids import blokir as bk                                       # noqa: E402
-from nids.laporan import (PERINTAH_MENU, aksi_blokir_telegram,      # noqa: E402
-                          jawab)
+from nids.laporan import (PERINTAH_MENU, aksi_ai_telegram,          # noqa: E402
+                          aksi_blokir_telegram, jawab)
 from nids.sistem import kondisi                                   # noqa: E402
 from nids.telegram import kirim_telegram, panggil_api             # noqa: E402
 from nids.tepercaya import PATH_BAWAAN, DaftarTepercaya           # noqa: E402
@@ -72,7 +74,7 @@ def label_pengirim(obj):
     return ("telegram (%s)" % nama) if nama else "telegram"
 
 
-def tangani_callback(cb, token, chat, path_log, path_blokir, path_tepercaya):
+def tangani_callback(cb, token, chat, path_log, path_blokir, path_tepercaya, path_audit=None):
     msg = cb.get("message") or {}
     dari_chat = str((msg.get("chat") or {}).get("id", ""))
     if dari_chat != chat:
@@ -90,6 +92,11 @@ def tangani_callback(cb, token, chat, path_log, path_blokir, path_tepercaya):
     oleh = label_pengirim(cb)
     teks, markup, ringkas = aksi_blokir_telegram(aksi, arg, oleh, path_blokir, path_tepercaya=path_tepercaya,
                                                  path_log=path_log)
+    if path_audit:
+        gagal = teks.startswith("❌")
+        j = ("TELEGRAM_BLOKIR_GAGAL" if aksi == "blokir" else "TELEGRAM_BUKA") if gagal else (
+            "TELEGRAM_BLOKIR" if aksi == "blokir" else "TELEGRAM_BUKA")
+        audit_bersama.tulis(path_audit, j, aktor=oleh, kode=(400 if gagal else 200), ket=ringkas)
     try:
         panggil_api(token, "answerCallbackQuery", {"callback_query_id": cb["id"], "text": ringkas[:180]},
                     batas_waktu=10)
@@ -111,6 +118,8 @@ def main():
     ap.add_argument("--log", default="/var/lib/nids-deteksi/deteksi.db")
     ap.add_argument("--tepercaya", default=PATH_BAWAAN)
     ap.add_argument("--diblokir", default=bk.PATH_BAWAAN)
+    ap.add_argument("--ai-konfig", default=asisten_ai.PATH_BAWAAN)
+    ap.add_argument("--audit-eksternal", default=audit_bersama.PATH_BAWAAN)
     a = ap.parse_args()
 
     token = (os.environ.get("TELEGRAM_TOKEN") or "").strip()
@@ -144,7 +153,8 @@ def main():
             offset = u["update_id"] + 1
             if "callback_query" in u:
                 try:
-                    tangani_callback(u["callback_query"], token, chat, a.log, a.diblokir, a.tepercaya)
+                    tangani_callback(u["callback_query"], token, chat, a.log, a.diblokir, a.tepercaya,
+                                     path_audit=a.audit_eksternal)
                 except Exception as ex:
                     traceback.print_exc()
                     cetak("galat callback:", ex)
@@ -169,9 +179,20 @@ def main():
                 tepercaya.muat_ulang(paksa=False)
             markup = None
             try:
+                oleh_tg = label_pengirim(m)
                 if p[0] in ("blokir", "buka"):
-                    teks, markup, _ = aksi_blokir_telegram(p[0], p[1], label_pengirim(m), a.diblokir,
-                                                           path_tepercaya=a.tepercaya, path_log=a.log)
+                    teks, markup, ringkas = aksi_blokir_telegram(p[0], p[1], oleh_tg, a.diblokir,
+                                                                    path_tepercaya=a.tepercaya, path_log=a.log)
+                    gagal = teks.startswith("❌")
+                    j = ("TELEGRAM_BLOKIR_GAGAL" if gagal else "TELEGRAM_BLOKIR") if p[0] == "blokir" else "TELEGRAM_BUKA"
+                    audit_bersama.tulis(a.audit_eksternal, j, aktor=oleh_tg, kode=(400 if gagal else 200), ket=ringkas)
+                elif p[0] in ("ai", "modelai", "models", "analisis", "ringkasai", "tanya"):
+                    teks = aksi_ai_telegram(p[0], p[1], a.log, path_ai=a.ai_konfig,
+                                            path_blokir=a.diblokir, tepercaya=tepercaya)
+                    gagal = teks.startswith("❌")
+                    audit_bersama.tulis(a.audit_eksternal, "TELEGRAM_AI_GAGAL" if gagal else "TELEGRAM_AI",
+                                        aktor=oleh_tg, kode=(400 if gagal else 200),
+                                        ket="/%s %s" % (p[0], (p[1] or "")[:120]))
                 else:
                     teks = jawab(a.log, p[0], p[1], tepercaya, kondisi() if p[0] == "status" else None,
                                  diblokir=a.diblokir)

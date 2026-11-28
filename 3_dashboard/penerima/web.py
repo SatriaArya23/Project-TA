@@ -11,9 +11,10 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from . import harian, statistik, waktu
 from .api import ringkasan
-from .db import catat_audit, koneksi, sekarang
+from .db import catat_audit, koneksi, sekarang, tarik_audit_eksternal
 from .keamanan import (KET_PERAN, PERAN, boleh, catat_gagal_login, cek_csrf, csrf_token, ip_klien, login_diblokir,
                        mulai_sesi, pengguna_aktif, sidik_sandi, wajib_hak, wajib_login)
+from nids import rekam_kendali  # noqa: E402
 
 bp = Blueprint("web", __name__)
 PER_HALAMAN = 50
@@ -24,7 +25,7 @@ HASH_PALSU = "scrypt:32768:8:1$AAAAAAAAAAAAAAAA$" + "0" * 128
 @bp.app_context_processor
 def isi_template():
     return {"pengguna": pengguna_aktif(), "csrf_token": csrf_token, "nama_peran": PERAN,
-            "boleh_kelola_pengguna": boleh("kelola_pengguna")}
+            "boleh_kelola_pengguna": boleh("kelola_pengguna"), "boleh_rekam": boleh("kelola_rekam")}
 
 
 @bp.app_template_filter("wita")
@@ -122,15 +123,61 @@ def akar():
     return redirect(url_for("deteksi.ringkasan"))
 
 
+def _rekam_siap():
+    path = current_app.config.get("REKAM_CMD_PATH")
+    if not path:
+        return False
+    folder = os.path.dirname(os.path.abspath(path))
+    return os.path.isdir(folder) and os.access(folder, os.W_OK)
+
+
 @bp.get("/rekaman")
 @wajib_login
 def beranda():
     lingk = lingkup()
     rows = harian.baris(koneksi(), lingk)
     hari = harian.per_hari(rows)
+    siap = _rekam_siap()
+    rekam_st = rekam_kendali.baca_status(current_app.config.get("REKAM_STATUS_PATH")) if siap else None
+    rekam_cmd = rekam_kendali.baca_perintah(current_app.config.get("REKAM_CMD_PATH")) if siap else None
+    ok_pesan = session.pop("_rekam_ok", None)
+    galat_pesan = session.pop("_rekam_galat", None)
     return render_template("beranda.html", ringkasan=[r for r in ringkasan(lingk) if r["aktif"] or r["jumlah"]],
                            hari=hari[:7], total=harian.total(hari), g_hari=harian.grafik_harian(hari),
-                           g_jam=harian.grafik_per_jam(rows))
+                           g_jam=harian.grafik_per_jam(rows), rekam_siap=siap, rekam_st=rekam_st,
+                           rekam_cmd=rekam_cmd, durasi_rekam=rekam_kendali.DURASI_OPSI,
+                           ok_pesan=ok_pesan, galat_pesan=galat_pesan)
+
+
+@bp.post("/rekaman/kendali")
+@wajib_login
+def kendali_rekaman():
+    cek_csrf()
+    wajib_hak("kelola_rekam", "Hanya administrator yang dapat memulai atau menghentikan perekaman.")
+    if not _rekam_siap():
+        abort(503, "Folder bersama perekam belum tersedia di server ini (jalankan pasang-deteksi.sh).")
+    f, p = request.form, pengguna_aktif()
+    aksi = f.get("aksi", "")
+    path_cmd = current_app.config["REKAM_CMD_PATH"]
+    try:
+        if aksi == "mulai":
+            durasi = f.get("durasi", "24j")
+            catatan = f.get("catatan", "")[:120]
+            cmd = rekam_kendali.minta_mulai(path_cmd, durasi=durasi, oleh=p["username"], catatan=catatan)
+            catat_audit("REKAM_MULAI", aktor=p["username"], ip=ip_klien(), kode=200,
+                        ket="durasi=%s (%s)" % (cmd["durasi_label"], cmd["catatan"] or "-"))
+            session["_rekam_ok"] = "Perintah mulai perekaman (%s) dikirim. Layanan perekam aktif dalam beberapa detik." % cmd["durasi_label"]
+        elif aksi == "berhenti":
+            rekam_kendali.minta_berhenti(path_cmd, oleh=p["username"])
+            catat_audit("REKAM_BERHENTI", aktor=p["username"], ip=ip_klien(), kode=200, ket="hentikan & simpan")
+            session["_rekam_ok"] = "Perintah hentikan perekaman dikirim. Berkas header terbaru sedang diproses & diunggah ke arsip."
+        else:
+            catat_audit("REKAM_MULAI_GAGAL", aktor=p["username"], ip=ip_klien(), kode=400, ket="aksi tidak dikenal: " + aksi)
+            raise ValueError("Aksi kendali perekaman tidak dikenal.")
+    except ValueError as e:
+        catat_audit("REKAM_GAGAL", aktor=p["username"], ip=ip_klien(), kode=400, ket=str(e))
+        session["_rekam_galat"] = str(e)
+    return redirect(url_for("web.beranda"))
 
 
 @bp.get("/berkas")
@@ -202,20 +249,85 @@ def unduh_hari(instalasi, tanggal):
                     headers={"Content-Disposition": 'attachment; filename="%s"' % nama})
 
 
+KATEGORI_AUDIT = [
+    ("semua", "Semua kejadian", ()),
+    ("deteksi", "Deteksi & adaptasi", ("UMPAN_BALIK", "ADAPTASI_", "TEPERCAYA_", "UNDUH_KASUS")),
+    ("blokir", "Blokir & firewall", ("BLOKIR_", "TELEGRAM_BLOKIR", "TELEGRAM_BUKA")),
+    ("ai", "Asisten AI", ("AI_", "TELEGRAM_AI")),
+    ("model", "Manajemen model", ("MODEL_",)),
+    ("rekaman", "Rekaman & API", ("UPLOAD_", "UNDUH", "REKAM_")),
+    ("pengguna", "Login & pengguna", ("LOGIN_", "PENGGUNA_", "GANTI_SANDI", "AKSES_DITOLAK")),
+]
+_AUDIT_KAT_MAP = {k: awalan for k, _, awalan in KATEGORI_AUDIT}
+
+
 @bp.get("/audit")
 @wajib_login
 def audit():
-    lingk, hal = lingkup(), halaman()
+    p = pengguna_aktif()
+    hal = halaman()
     db = koneksi()
-    if lingk is not None:
-        nama_inst = db.execute("SELECT nama FROM instalasi WHERE id = ?", (lingk,)).fetchone()["nama"]
-        where, nilai = " WHERE instalasi = ?", [nama_inst]
-    else:
-        where, nilai = "", []
+    tarik_audit_eksternal(current_app.config.get("AUDIT_EKSTERNAL_PATH"), db=db)
+
+    syarat, nilai = [], []
+    if p["peran"] == "viewer":
+        if p["instalasi_id"] is not None:
+            row_inst = db.execute("SELECT nama FROM instalasi WHERE id = ?", (p["instalasi_id"],)).fetchone()
+            syarat.append("instalasi = ?")
+            nilai.append(row_inst["nama"] if row_inst else "__tidak_ada__")
+        else:
+            syarat.append("1 = 0")
+
+    kat = request.args.get("kategori", "semua").strip().lower()
+    if kat not in _AUDIT_KAT_MAP:
+        kat = "semua"
+    awalan = _AUDIT_KAT_MAP[kat]
+    if awalan:
+        syarat.append("(" + " OR ".join("jenis LIKE ?" for _ in awalan) + ")")
+        nilai.extend(a + "%" for a in awalan)
+
+    tanggal_s = (request.args.get("tanggal") or "").strip()
+    if tanggal_s:
+        rentang = waktu.rentang_nama_untuk_tanggal_wita(tanggal_s)
+        if rentang:
+            # rentang cap_YYYYMMDD_HHMMSS -> konversi ke ISO UTC
+            t0 = "%s-%s-%sT%s:%s:%sZ" % (rentang[0][4:8], rentang[0][8:10], rentang[0][10:12],
+                                         rentang[0][13:15], rentang[0][15:17], rentang[0][17:19])
+            t1 = "%s-%s-%sT%s:%s:%sZ" % (rentang[1][4:8], rentang[1][8:10], rentang[1][10:12],
+                                         rentang[1][13:15], rentang[1][15:17], rentang[1][17:19])
+            syarat.append("waktu_utc >= ? AND waktu_utc < ?")
+            nilai.extend([t0, t1])
+
+    cari = (request.args.get("cari") or "").strip()[:80]
+    if cari:
+        like = "%" + cari + "%"
+        syarat.append("(COALESCE(jenis,'') LIKE ? OR COALESCE(aktor,'') LIKE ? OR COALESCE(ip,'') LIKE ? "
+                      "OR COALESCE(nama_berkas,'') LIKE ? OR COALESCE(keterangan,'') LIKE ?)")
+        nilai.extend([like] * 5)
+
+    where = (" WHERE " + " AND ".join(syarat)) if syarat else ""
+
+    if request.args.get("format") == "csv":
+        import csv
+        import io
+        rows_csv = db.execute("SELECT * FROM audit" + where + " ORDER BY id DESC LIMIT 5000", nilai).fetchall()
+        buf = io.StringIO()
+        w = csv.writer(buf)
+        w.writerow(["waktu_utc", "jenis", "instalasi", "aktor", "ip", "nama_berkas", "ukuran", "sha256", "kode_http", "keterangan"])
+        for a in rows_csv:
+            w.writerow([a["waktu_utc"], a["jenis"], a["instalasi"] or "", a["aktor"] or "", a["ip"] or "",
+                        a["nama_berkas"] or "", "" if a["ukuran"] is None else a["ukuran"], a["sha256"] or "",
+                        "" if a["kode_http"] is None else a["kode_http"], a["keterangan"] or ""])
+        catat_audit("AUDIT_EKSPOR", aktor=p["username"], ip=ip_klien(), kode=200,
+                    ket="%d baris (%s)" % (len(rows_csv), kat), db=db)
+        return Response(buf.getvalue(), mimetype="text/csv; charset=utf-8",
+                        headers={"Content-Disposition": 'attachment; filename="audit_asuna.csv"'})
+
     total = db.execute("SELECT COUNT(*) FROM audit" + where, nilai).fetchone()[0]
     rows = db.execute("SELECT * FROM audit" + where + " ORDER BY id DESC LIMIT ? OFFSET ?",
                       nilai + [PER_HALAMAN, (hal - 1) * PER_HALAMAN]).fetchall()
-    return render_template("audit.html", rows=rows, total=total, hal=hal, per=PER_HALAMAN)
+    return render_template("audit.html", rows=rows, total=total, hal=hal, per=PER_HALAMAN,
+                           kategori_opsi=KATEGORI_AUDIT, kategori=kat, tanggal=tanggal_s, cari=cari)
 
 
 # ----------------------------------------------------------------------- akun & pengguna

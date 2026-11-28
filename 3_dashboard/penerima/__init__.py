@@ -33,6 +33,15 @@ def create_app(uji=None):
         # daftar IP diblokir bersama layanan firewall nids-blokir (ditulis admin lewat dashboard atau Telegram)
         BLOKIR_PATH=os.environ.get("PENERIMA_BLOKIR", "/var/lib/nids-bersama/ip_diblokir.json"),
         BLOKIR_STATUS_PATH=os.environ.get("PENERIMA_BLOKIR_STATUS", "/var/lib/nids-bersama/ip_diblokir_status.json"),
+        # katalog model bersama (switch / rollback model, mode Dual-IF / IF-Flow / IF-Agg, unggah .joblib)
+        MODEL_DIR=os.environ.get("PENERIMA_MODEL_DIR", "/var/lib/nids-bersama/model"),
+        # kendali perekam lalu lintas (traffic-recorder) dari Tab Rekaman
+        REKAM_CMD_PATH=os.environ.get("PENERIMA_REKAM_CMD", "/var/lib/nids-bersama/rekam_perintah.json"),
+        REKAM_STATUS_PATH=os.environ.get("PENERIMA_REKAM_STATUS", "/var/lib/nids-bersama/rekam_status.json"),
+        # konfigurasi multi-AI bersama dashboard & bot Telegram (OpenAI, Gemini, Claude, OpenAI-Compatible)
+        AI_CONFIG_PATH=os.environ.get("PENERIMA_AI_CONFIG", "/var/lib/nids-bersama/ai_konfig.json"),
+        # antrean audit lintas layanan (Telegram Bot, worker impor model)
+        AUDIT_EKSTERNAL_PATH=os.environ.get("PENERIMA_AUDIT_EKSTERNAL", "/var/lib/nids-bersama/audit_eksternal.jsonl"),
     )
     if uji:
         app.config.update(uji)

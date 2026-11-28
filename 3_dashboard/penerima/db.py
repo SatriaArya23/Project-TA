@@ -94,6 +94,16 @@ CREATE TABLE IF NOT EXISTS umpan_balik (
 );
 CREATE INDEX IF NOT EXISTS idx_audit_waktu  ON audit (waktu_utc);
 CREATE INDEX IF NOT EXISTS idx_berkas_waktu ON berkas (diterima_utc);
+CREATE TABLE IF NOT EXISTS ai_chat (
+    id            INTEGER PRIMARY KEY,
+    username      TEXT NOT NULL,
+    waktu_utc     TEXT NOT NULL,
+    role          TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+    koneksi_nama  TEXT,
+    model         TEXT,
+    konten        TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ai_chat_user ON ai_chat (username, id);
 """
 
 
@@ -161,10 +171,33 @@ def tutup(_=None):
 
 
 def catat_audit(jenis, instalasi=None, aktor=None, ip=None, nama=None, ukuran=None, sha=None,
-                kode=None, ket=None, db=None):
+                kode=None, ket=None, db=None, waktu_utc=None):
     db = db or koneksi()
     db.execute(
         "INSERT INTO audit (waktu_utc, jenis, instalasi, aktor, ip, nama_berkas, ukuran, sha256, kode_http, keterangan) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (sekarang(), jenis, instalasi, aktor, ip, nama, ukuran, sha, kode, ket))
+        (waktu_utc or sekarang(), jenis, instalasi, aktor, ip, nama, ukuran, sha, kode, ket))
     db.commit()
+
+
+def tarik_audit_eksternal(path_eksternal, db=None):
+    """Tarik peristiwa audit dari layanan nids-bot / worker model ke tabel SQLite `audit`."""
+    if not path_eksternal:
+        return 0
+    try:
+        from nids import audit_bersama
+    except ImportError:
+        return 0
+    entri = audit_bersama.kuras(path_eksternal)
+    if not entri:
+        return 0
+    db = db or koneksi()
+    for a in entri:
+        db.execute(
+            "INSERT INTO audit (waktu_utc, jenis, instalasi, aktor, ip, nama_berkas, ukuran, sha256, kode_http, keterangan) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (a.get("waktu_utc") or sekarang(), a.get("jenis"), a.get("instalasi"), a.get("aktor"),
+             a.get("ip"), a.get("nama_berkas"), a.get("ukuran"), a.get("sha256"),
+             a.get("kode_http"), a.get("keterangan")))
+    db.commit()
+    return len(entri)

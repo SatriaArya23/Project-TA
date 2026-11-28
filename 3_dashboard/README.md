@@ -9,15 +9,18 @@ Alamat contoh pemasangan: **https://penerima.example.com**
 | Fitur | Keterangan |
 |---|---|
 | Unggah | `PUT /api/v1/upload/<nama>`, HTTPS + token per instalasi, verifikasi SHA-256, tolak duplikat (409) |
+| Kendali Rekam | Kontrol `traffic-recorder` langsung dari tab Rekaman (mulai/berhenti, durasi berbatas waktu & auto-stop) |
 | Token | Disimpan sebagai hash SHA-256; bisa dicabut kapan saja; token unggah tidak bisa membaca dan sebaliknya |
-| Audit | Setiap unggahan (diterima/duplikat/ditolak), unduhan, aksi blokir IP, dan login dicatat: waktu, IP, pelaku, rincian |
+| Audit | Log audit terpusat lintas layanan (`dashboard`, bot Telegram, worker `nids-model`), pencatatan penolakan/kegagalan, isolasi `viewer`, filter kategori/tanggal/cari, dan ekspor CSV |
 | Akses baca | Dashboard login dan API token `read`; hak akses berbasis peran (**Admin / Analis / Pemantau**) |
 | Statistik rekaman | Setiap berkas dihitung isinya saat diterima memakai pembaca pcap dari `2_sistem_nids` |
 | Tampilan per hari | Rekaman per jam ditampilkan per hari (WITA) + grafik; **"unduh 1 hari"** menggabungkan rekaman menjadi satu `.pcap.gz` |
-| Deteksi (`Dual-IF`) | Halaman **Deteksi**: status modul, aliran diperiksa & anomali per jam, IP teratas, saring model (`IF-Flow`, `IF-Agg`, `Dual-IF`), rincian IP, notifikasi Telegram ASUNA & latensinya, serta riwayat versi model |
+| Deteksi (`Dual-IF`) | Halaman **Deteksi**: status modul, aliran diperiksa & anomali per jam, IP teratas, saring model (`IF-Flow`, `IF-Agg`, `Dual-IF`), rincian IP, **Hampir anomali** (tombol keputusan 1-klik Anomali/Bukan anomali), notifikasi Telegram ASUNA & latensinya |
+| Model & Adaptasi | Manajemen katalog model *hot-reload* (ubah mode, aktifkan/rollback, beri nama), unggah `.joblib` tervalidasi otomatis oleh `nids-model`, serta daftar & hapus aturan adaptasi aktif |
+| Asisten Multi-AI | Dukungan multi-provider (OpenAI, Google Gemini, Anthropic Claude, OpenAI-Compatible), auto-fetch `/models`, pemilih koneksi & model bebas + kustom di web chat (`ai_chat` multi-turn), ringkasan & rincian IP |
 | Blokir IP (`nftables`) | Halaman **Blokir IP** (khusus Admin): tambah atau buka blokir IP/CIDR (maksimal `/24` IPv4 dan `/64` IPv6) lewat antrean `ip_diblokir.json` yang dieksekusi layanan `nids-blokir` dengan proteksi *anti-lockout* |
-| Umpan balik | Laporan **serangan lolos** / **alarm palsu** → pemeriksaan kuantil skor di modul deteksi → usulan ambang baru atau antrean `kasus_pelatihan_ulang.json` |
-| Keamanan | `gunicorn` sebagai user `tanids` tanpa *root* (`127.0.0.1`), Nginx + HTTPS Let's Encrypt, CSP ketat, CSRF, batas percobaan login |
+| Umpan balik | Laporan **serangan lolos** / **alarm palsu** → pemeriksaan kuantil skor & adaptasi prototipe fitur → terapkan langsung tanpa *restart* atau tandai antrean pelatihan ulang |
+| Keamanan | `gunicorn` sebagai user `tanids` tanpa *root* (`127.0.0.1`), Nginx + HTTPS Let's Encrypt, CSP ketat (`default-src 'self'`), CSRF, batas percobaan login |
 
 ## Struktur
 
@@ -109,10 +112,10 @@ curl -H "Authorization: Bearer $(cat token-api-baca.txt)" "https://penerima.exam
 
 ```bash
 pip install flask pytest
-python -m pytest -q tests        # 49 uji: kontrak unggah, token, lingkup baca, dashboard ASUNA, CSRF,
+python -m pytest -q tests        # 56 uji: kontrak unggah, token, lingkup baca, dashboard ASUNA, CSRF,
                                  # batas login, statistik rekaman, tampilan per hari, unduh gabungan,
                                  # halaman Deteksi Dual-IF, Blokir IP (nftables) & anti-lockout,
-                                 # loop umpan balik, serta hak akses RBAC
+                                 # adaptasi model, Multi-AI dinamis, audit lintas layanan, & RBAC
 ```
 
 ## Rencana lanjutan

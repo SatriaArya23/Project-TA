@@ -1,48 +1,77 @@
 {% extends "dasar.html" %}
 {% block judul %}Hampir anomali{% endblock %}
-{% block alat %}
-{% set sub = 'hampir' %}{% include "deteksi/_sub_anomali.html" %}
-<nav class="pil" aria-label="Rentang waktu">
-  {% for k, v in semua_rentang.items() %}
-  <a href="{{ url_for('deteksi.hampir', rentang=k) }}" {% if k == rentang %}class="aktif" aria-current="true"{% endif %}>{{ v[0] }}</a>
-  {% endfor %}
-</nav>
-{% include "deteksi/_cari_ip.html" %}
-{% endblock %}
 {% block isi %}
-<section class="wz-card">
-  <div class="wz-card-head">
-    <h2>Hampir anomali <span class="wz-tag">{{ total|angka }} IP sumber</span></h2>
-    <span class="redup kecil">{{ nama_rentang }} s.d. {{ akhir|wita_us }} WITA · batas IF-Flow ≤ {{ batas.A|persen(0) }}, IF-Agg ≤ {{ batas.C|persen(0) }}</span>
-  </div>
+{% if galat_pesan %}<p class="galat">{{ galat_pesan }}</p>{% endif %}
+{% if ok_pesan %}<p class="berhasil">{{ ok_pesan }}</p>{% endif %}
 
-  <div class="gulir">
-  <table>
+<section class="panel-kartu">
+  <div class="wz-alat-bar">
+    <div class="panel-kepala">
+      <h2>IP sumber mendekati ambang <span class="lencana waspada">{{ total|angka }} IP sumber</span></h2>
+    </div>
+    <div class="alat-kanan">
+      <div class="pil" aria-label="Rentang waktu">
+        {% for kode, (label, _) in semua_rentang.items() %}
+        <a href="{{ url_for('deteksi.hampir', rentang=kode) }}" {% if rentang == kode %}class="aktif"{% endif %}>{{ label }}</a>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+  <p class="catatan atas">Daftar ini menampilkan IP yang tidak ditandai oleh model, tetapi memiliki aliran di atas batas sensitivitas aman ({{ batas.A|persen(2) }} IF-Flow / {{ batas.C|persen(2) }} IF-Agg) pada {{ nama_rentang }} terakhir. Tetapkan langsung sebagai <strong>Anomali</strong> atau <strong>Bukan anomali</strong> agar model beradaptasi untuk kejadian serupa berikutnya.</p>
+</section>
+
+<section class="panel-kartu">
+  <div class="gulir"><table>
     <thead><tr>
-      <th>IP sumber</th><th class="kanan">Aliran mendekati ambang</th><th>Model terdekat</th>
-      <th class="kanan">Skor / ambang</th><th class="kanan">Persentil / ambang</th>
-      <th>Port tujuan teratas</th><th>Terakhir (WITA)</th>{% if boleh_lapor %}<th></th>{% endif %}
+      <th>IP sumber</th>
+      <th class="kanan">Aliran mendekati ambang</th>
+      <th>Model terdekat</th>
+      <th class="kanan">Skor / ambang</th>
+      <th class="kanan">Persentil / ambang</th>
+      <th>Port tujuan teratas</th>
+      <th>Terakhir (WITA)</th>
+      <th>Tindakan</th>
     </tr></thead>
     <tbody>
-    {% for p in daftar %}{% set t = p.terdekat %}
+    {% for p in daftar %}
       <tr>
         <td class="mono"><a href="{{ url_for('deteksi.rincian_ip', ip=p.src_ip) }}">{{ p.src_ip }}</a></td>
-        <td class="kanan">{{ p.dekat|angka }} <span class="redup">/ {{ p.aliran|angka }}</span></td>
-        <td><span class="lencana model">{{ t.model|nama_model }}</span></td>
-        <td class="kanan mono">{{ t.skor|desimal(4) }} <span class="redup">/ {{ t.ambang|desimal(4) }}</span></td>
-        <td class="kanan">{{ t.persentil|persen(2) }} <span class="redup">/ {{ t.persentil_ambang|persen(2) }}</span></td>
-        <td class="mono">{% for port, n in p.port %}{{ port }}<span class="redup">×{{ n }}</span>{% if not loop.last %}, {% endif %}{% endfor %}</td>
-        <td class="redup">{{ p.akhir|wita_us }}</td>
-        {% if boleh_lapor %}<td class="nowrap"><a href="{{ url_for('deteksi.umpan_balik', jenis='lolos', ip=p.src_ip, mulai=p.isi_mulai, akhir=p.isi_akhir) }}">Periksa ulang →</a></td>{% endif %}
+        <td class="kanan">{{ p.dekat|angka }} / {{ p.aliran|angka }}</td>
+        <td><span class="lencana model">{{ p.terdekat.model }}</span></td>
+        <td class="kanan mono">{{ p.terdekat.skor|desimal(4) }} / {{ p.terdekat.ambang|desimal(4) }}</td>
+        <td class="kanan">{{ p.terdekat.persentil|persen(2) }} / {{ p.terdekat.persentil_ambang|persen(2) }}</td>
+        <td>{% for port_no, _ in p.port %}{% if not loop.first %}, {% endif %}<span class="mono">{{ port_no if port_no is not none else '—' }}</span>{% else %}—{% endfor %}</td>
+        <td class="nowrap">{{ p.akhir|wita_us }}</td>
+        <td>
+          <div class="aksi-hampir">
+            {% if boleh_model and katalog_siap() %}
+            <form method="post" action="{{ url_for('deteksi.hampir_putuskan') }}">
+              <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+              <input type="hidden" name="ip" value="{{ p.src_ip }}">
+              <input type="hidden" name="mulai_us" value="{{ p.awal_us }}">
+              <input type="hidden" name="akhir_us" value="{{ p.akhir_us }}">
+              <input type="hidden" name="rentang" value="{{ rentang }}">
+              <input type="hidden" name="keputusan" value="anomali">
+              <button type="submit" class="tombol-anomali">Anomali</button>
+            </form>
+            <form method="post" action="{{ url_for('deteksi.hampir_putuskan') }}">
+              <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+              <input type="hidden" name="ip" value="{{ p.src_ip }}">
+              <input type="hidden" name="mulai_us" value="{{ p.awal_us }}">
+              <input type="hidden" name="akhir_us" value="{{ p.akhir_us }}">
+              <input type="hidden" name="rentang" value="{{ rentang }}">
+              <input type="hidden" name="keputusan" value="normal">
+              <button type="submit" class="tombol-normal">Bukan anomali</button>
+            </form>
+            {% endif %}
+            <a href="{{ url_for('deteksi.umpan_balik', jenis='lolos', ip=p.src_ip, mulai=p.isi_mulai, akhir=p.isi_akhir) }}">Periksa ulang →</a>
+          </div>
+        </td>
       </tr>
     {% else %}
-      <tr><td colspan="{{ 8 if boleh_lapor else 7 }}" class="redup">Tidak ada IP hampir anomali dalam {{ nama_rentang }} terakhir.</td></tr>
+      <tr class="kosong"><td colspan="8">Tidak ada IP sumber mendekati ambang pada rentang {{ nama_rentang }} terakhir.</td></tr>
     {% endfor %}
     </tbody>
-  </table>
-  </div>
-  {% if total > daftar|length %}
-  <p class="catatan">Menampilkan {{ daftar|length }} dari {{ total|angka }} IP.</p>
-  {% endif %}
+  </table></div>
 </section>
 {% endblock %}

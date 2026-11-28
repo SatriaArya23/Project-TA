@@ -24,12 +24,14 @@ import sklearn
 from sklearn.ensemble import IsolationForest
 from sklearn.preprocessing import StandardScaler
 
+from . import adaptasi
 from .agregasi import FITUR_AGREGASI
 from .aliran import FITUR
-from .umpan_balik import ambang_dari_kontaminasi, kontaminasi_dari_skor
+from .umpan_balik import BATAS_CONTAMINATION, ambang_dari_kontaminasi, kontaminasi_dari_skor
 
 PARAM = dict(n_estimators=100, max_samples=256, random_state=42)
 CONTAMINATION_A, CONTAMINATION_C = 0.001, 0.0075          # hasil penalaan pada data VPS perusahaan (notebook 07)
+MODE_VALID = ("A+C", "A", "C")
 
 
 def log_bertanda(X):
@@ -60,53 +62,113 @@ class SatuModel:
         X = df[self.fitur].to_numpy(dtype=float)
         return log_bertanda(X) if self.transformasi == "log" else X
 
+    def ubah_standar(self, df):
+        return self.scaler.transform(self.ubah(df))
+
+    def skor_dan_vektor(self, df):
+        Z = self.ubah_standar(df)
+        return -self.model.score_samples(Z), Z
+
     def skor(self, df):
-        return -self.model.score_samples(self.scaler.transform(self.ubah(df)))
+        return -self.model.score_samples(self.ubah_standar(df))
 
 
 class ModelDeteksi:
-    def __init__(self, paket):
+    def __init__(self, paket, mode=None):
         self.A, self.C = SatuModel(paket["A"]), SatuModel(paket["C"])
         self.jendela_detik = int(paket.get("jendela_detik", 300))
         self.info = {k: v for k, v in paket.items() if k not in ("A", "C")}
         self.paket = paket
         self.versi = paket.get("versi") or "tanpa-versi"
+        m = mode if mode in MODE_VALID else paket.get("mode", "A+C")
+        self.mode = m if m in MODE_VALID else "A+C"
+        self.adaptasi = list(paket.get("adaptasi") or [])
+
+    def batas_aman(self):
+        """Kembalikan (batas_a, batas_c) terendah untuk zona hampir anomali."""
+        out = {}
+        for kode, sub in (("A", self.A), ("C", self.C)):
+            k = (self.paket.get(kode) or {}).get("kuantil")
+            out[kode] = min(sub.ambang, ambang_dari_kontaminasi(k, BATAS_CONTAMINATION[kode])) if k else sub.ambang
+        return out["A"], out["C"]
+
+    def terapkan_katalog(self, entri, mode=None):
+        """Perbarui versi, ambang, mode deteksi, aturan adaptasi, dan metadata tanpa reload pohon."""
+        if entri.get("versi"):
+            self.versi = entri["versi"]
+        if mode in MODE_VALID:
+            self.mode = mode
+        for kode, sub in (("A", self.A), ("C", self.C)):
+            m = entri.get(kode)
+            if isinstance(m, dict) and m.get("ambang") is not None:
+                sub.ambang = float(m["ambang"])
+                sub.contamination = m.get("contamination")
+                self.paket[kode] = dict(self.paket[kode], threshold=sub.ambang, contamination=sub.contamination)
+        if "adaptasi" in entri:
+            self.adaptasi = list(entri.get("adaptasi") or [])
+            self.info["adaptasi"] = self.adaptasi
+        for k in ("nama", "alasan", "induk", "hutan", "riwayat_ambang", "dibuat_utc", "oleh"):
+            if k in entri:
+                self.info[k] = entri[k]
 
     def ringkas(self):
         """Info model yang aman di-JSON-kan (untuk tabel `model` di log dan halaman dashboard)."""
-        d = {"versi": self.versi, "jendela_detik": self.jendela_detik}
+        d = {"versi": self.versi, "jendela_detik": self.jendela_detik, "mode": self.mode}
         for k, v in self.info.items():
             if k == "sumber_intens":
                 d["jumlah_sumber_intens"] = len(v)
-            elif k != "versi":
+            elif k not in ("versi", "mode"):
                 d[k] = v
-        for nama in ("A", "C"):
+        if self.adaptasi:
+            d["adaptasi"] = self.adaptasi
+        for nama, sub in (("A", self.A), ("C", self.C)):
             m = self.paket[nama]
-            d[nama] = {"contamination": m.get("contamination"), "ambang": float(m["threshold"]),
-                       "jumlah_fitur": len(m["fitur"]), "transformasi": m.get("transformasi"),
+            d[nama] = {"contamination": sub.contamination, "ambang": float(sub.ambang),
+                       "jumlah_fitur": len(sub.fitur), "transformasi": sub.transformasi,
                        "kuantil": m.get("kuantil")}
         return json.loads(json.dumps(d, default=str))
 
     @classmethod
-    def muat(cls, path):
+    def muat(cls, path, mode=None):
         paket = joblib.load(path)
         versi = paket.get("versi_sklearn")
         if versi and versi != sklearn.__version__:
             warnings.warn("Model dilatih dengan scikit-learn %s, sekarang %s. Latih ulang model di mesin ini "
                           "(latih_model.py) agar hasilnya terjamin sama." % (versi, sklearn.__version__))
-        return cls(paket)
+        return cls(paket, mode=mode)
+
+    def nilai_detail(self, aliran):
+        """aliran -> (hasil, xa, xc); hasil = list (skor_A, skor_C, oleh)."""
+        if not aliran:
+            return [], None, None
+        df = pd.DataFrame(aliran, columns=FITUR + FITUR_AGREGASI)
+        sa, xa = self.A.skor_dan_vektor(df)
+        sc, xc = self.C.skor_dan_vektor(df)
+        pakai_a = self.mode in ("A+C", "A")
+        pakai_c = self.mode in ("A+C", "C")
+        if not self.adaptasi:
+            hasil = []
+            for a, c in zip(sa, sc):
+                oleh = ("A" if pakai_a and a > self.A.ambang else "") + ("C" if pakai_c and c > self.C.ambang else "")
+                hasil.append((float(a), float(c), "A+C" if oleh == "AC" else oleh))
+            return hasil, xa, xc
+
+        ba, bc = self.batas_aman()
+        hasil = []
+        for idx, (f, a, c) in enumerate(zip(aliran, sa, sc)):
+            eff_a, eff_c, oleh, _ = adaptasi.evaluasi_aliran(
+                float(a), float(c), pakai_a, pakai_c, self.A.ambang, self.C.ambang, ba, bc,
+                self.adaptasi,
+                vec_a=xa[idx].tolist(), vec_c=xc[idx].tolist(),
+                dst_port=f.get("Destination Port"), protokol=f.get("Protocol"),
+                paket=int(f.get("Total Fwd Packets", 0)) + int(f.get("Total Backward Packets", 0)),
+            )
+            hasil.append((eff_a, eff_c, oleh))
+        return hasil, xa, xc
 
     def nilai(self, aliran):
         """aliran = list of dict berfitur lengkap -> list of (skor_A, skor_C, oleh) ; oleh = '' bila normal."""
-        if not aliran:
-            return []
-        df = pd.DataFrame(aliran, columns=FITUR + FITUR_AGREGASI)
-        sa, sc = self.A.skor(df), self.C.skor(df)
-        hasil = []
-        for a, c in zip(sa, sc):
-            oleh = ("A" if a > self.A.ambang else "") + ("C" if c > self.C.ambang else "")
-            hasil.append((float(a), float(c), "A+C" if oleh == "AC" else oleh))
-        return hasil
+        return self.nilai_detail(aliran)[0]
 
 
 def latih(df_latih, contamination_A=CONTAMINATION_A, contamination_C=CONTAMINATION_C, jendela_detik=300, info=None,

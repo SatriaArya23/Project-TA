@@ -3,29 +3,65 @@
 {% block isi %}
 <section class="panel-kartu">
   <div class="panel-kepala">
-    <h1>Catatan audit <span class="lencana netral">{{ total }} entri</span></h1>
+    <h1>Catatan audit <span class="lencana netral">{{ total|angka }} kejadian</span></h1>
+    <a class="tombol" href="{{ url_for('web.audit', kategori=kategori, tanggal=tanggal, cari=cari, format='csv') }}">Unduh CSV</a>
   </div>
-  <div class="gulir">
-  <table>
-    <thead><tr><th>Waktu (WITA)</th><th>Kejadian</th><th>Instalasi / aktor</th><th>IP</th><th>Berkas</th><th class="kanan">Ukuran</th><th>HTTP</th><th>Keterangan</th></tr></thead>
+  <form method="get" class="saring">
+    <label>Kategori
+      <select name="kategori">
+        {% for kode, label, _ in kategori_opsi %}
+        <option value="{{ kode }}" {% if kategori == kode %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Tanggal (WITA)
+      <input type="date" name="tanggal" value="{{ tanggal or '' }}">
+    </label>
+    <label>Cari
+      <input type="search" name="cari" value="{{ cari or '' }}" placeholder="Aktor, IP, jenis, keterangan…">
+    </label>
+    <button type="submit">Saring</button>
+    {% if kategori != 'semua' or tanggal or cari %}
+    <a class="tombol" href="{{ url_for('web.audit') }}">Reset</a>
+    {% endif %}
+  </form>
+</section>
+
+<section class="panel-kartu">
+  <div class="gulir"><table>
+    <thead><tr>
+      <th>Waktu (WITA)</th><th>Kejadian</th><th>Instalasi</th><th>Aktor</th>
+      <th>IP</th><th>Berkas</th><th class="kanan">Ukuran</th><th class="kanan">Kode</th><th>Keterangan</th>
+    </tr></thead>
     <tbody>
     {% for a in rows %}
+      {% if 'GAGAL' in a.jenis or 'DITOLAK' in a.jenis %}
+        {% set kls = 'mati' %}
+      {% elif a.jenis.startswith('ADAPTASI_') or a.jenis.startswith('MODEL_') %}
+        {% set kls = 'model' %}
+      {% elif a.jenis.startswith('TELEGRAM_') or a.jenis.startswith('BLOKIR_') or a.jenis.startswith('REKAM_') %}
+        {% set kls = 'waspada' %}
+      {% elif a.jenis.startswith('AI_') or a.jenis == 'UMPAN_BALIK' or a.jenis == 'LOGIN_OK' or a.jenis.startswith('PENGGUNA_') or a.jenis == 'TEPERCAYA_TAMBAH' %}
+        {% set kls = 'ok' %}
+      {% else %}
+        {% set kls = 'netral' %}
+      {% endif %}
       <tr>
-        <td title="{{ a.waktu_utc }}">{{ a.waktu_utc|wita }}</td>
-        <td><span class="lencana {{ 'ok' if a.jenis in ('UPLOAD_DITERIMA', 'LOGIN_OK') else ('mati' if 'DITOLAK' in a.jenis or 'GAGAL' in a.jenis or 'BLOKIR' in a.jenis else '') }}">{{ a.jenis }}</span></td>
-        <td>{{ a.instalasi or '' }}{% if a.aktor and a.aktor != a.instalasi %}{{ ' · ' if a.instalasi }}{{ a.aktor }}{% endif %}</td>
-        <td class="mono">{{ a.ip or '' }}</td>
-        <td class="mono">{{ a.nama_berkas or '' }}</td>
-        <td class="kanan">{{ a.ukuran|ukuran if a.ukuran is not none else '' }}</td>
-        <td>{{ a.kode_http or '' }}</td>
-        <td class="redup">{{ a.keterangan or '' }}</td>
+        <td class="nowrap">{{ a.waktu_utc|wita }}</td>
+        <td><span class="lencana {{ kls }}">{{ a.jenis }}</span></td>
+        <td>{{ a.instalasi or '—' }}</td>
+        <td>{{ a.aktor or '—' }}</td>
+        <td class="mono">{{ a.ip or '—' }}</td>
+        <td class="mono">{{ a.nama_berkas or '—' }}</td>
+        <td class="kanan">{{ a.ukuran|ukuran if a.ukuran is not none else '—' }}</td>
+        <td class="kanan">{% if a.kode_http is not none %}<span class="lencana {{ 'mati' if a.kode_http >= 400 else 'netral' }}">{{ a.kode_http }}</span>{% else %}—{% endif %}</td>
+        <td class="teks-bungkus">{{ a.keterangan or '—' }}</td>
       </tr>
     {% else %}
-      <tr><td colspan="8" class="redup">Belum ada catatan.</td></tr>
+      <tr class="kosong"><td colspan="9">Belum ada catatan yang cocok dengan filter.</td></tr>
     {% endfor %}
     </tbody>
-  </table>
-  </div>
+  </table></div>
   {% include "_halaman.html" with context %}
 </section>
 {% endblock %}

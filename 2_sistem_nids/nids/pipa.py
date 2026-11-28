@@ -17,6 +17,7 @@ KOLOM = METADATA + ["Waktu Selesai"] + FITUR + FITUR_AGREGASI
 
 class Pipa:
     def __init__(self, jendela_detik=300):
+        self.jendela_detik = jendela_detik
         self.penyusun = PenyusunAliran()
         self.agregator = AgregatorJendela(jendela_detik)
         self.jumlah_paket = 0

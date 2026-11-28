@@ -76,6 +76,51 @@
   {% endfor %}
 </dl>
 
+{% if boleh_pakai_ai %}
+<section class="wz-card ai-bar-card">
+  <div class="ai-bar-atas">
+    <div>
+      <h2>Analisis AI · <code class="mono">{{ ip }}</code></h2>
+    </div>
+    {% if ai_list.profil %}
+    <form method="post" action="{{ url_for('deteksi.analisis_ip_ai', ip=ip) }}" class="ai-pemilih" data-ai-pemilih data-ai-profil='{{ ai_list.profil|tojson }}'>
+      <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+      <label>Koneksi
+        <select name="profil_id" aria-label="Pilih koneksi AI">
+          {% for p in ai_list.profil %}
+          <option value="{{ p.id }}" {% if p.aktif %}selected{% endif %}>{{ p.nama }} ({{ p.provider_label }})</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Model
+        <select name="model_pilih" data-model-awal="" aria-label="Pilih model AI">
+          <option value="">—</option>
+        </select>
+      </label>
+      <label data-ai-kustom-bungkus hidden>ID model
+        <input name="model_kustom" value="" maxlength="120" class="mono" placeholder="ID model lain">
+      </label>
+      <button type="submit" class="utama sedang">Analisis IP dengan AI</button>
+    </form>
+    {% elif boleh_ai %}
+    <a class="tombol" href="{{ url_for('deteksi.ai_halaman') }}">Atur API AI →</a>
+    {% else %}
+    <span class="redup kecil">Belum ada profil AI yang dikonfigurasi.</span>
+    {% endif %}
+  </div>
+  {% if hasil_ai %}
+  <div class="ai-hasil">
+    <div class="ai-hasil-meta">
+      <span class="lencana ok">{{ hasil_ai.profil_nama }}</span>
+      <span class="wz-tag mono">{{ hasil_ai.model }}</span>
+      <span class="redup kecil">{{ hasil_ai.waktu_utc|wita }} WITA{% if hasil_ai.dari_cache %} · cache{% endif %}</span>
+    </div>
+    <div class="ai-teks">{{ hasil_ai.teks }}</div>
+  </div>
+  {% endif %}
+</section>
+{% endif %}
+
 <div class="wz-grid-2">
   <section class="wz-card">
     <div class="wz-card-head">

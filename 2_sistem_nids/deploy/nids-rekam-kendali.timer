@@ -1,0 +1,10 @@
+[Unit]
+Description=Periksa batas durasi & status perekam lalu lintas tiap menit
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=60s
+Unit=nids-rekam-kendali.service
+
+[Install]
+WantedBy=timers.target

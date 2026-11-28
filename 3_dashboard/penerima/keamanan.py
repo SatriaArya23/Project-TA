@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 
 from flask import abort, g, redirect, request, session, url_for
 
-from .db import koneksi, sekarang
+from .db import catat_audit, koneksi, sekarang
 
 BATAS_GAGAL_LOGIN = 5          # per IP
 JENDELA_GAGAL_MENIT = 15
@@ -122,6 +122,10 @@ HAK = {
     "kelola_pengguna": ("admin",),
     "kelola_tepercaya": ("admin",),         # daftar IP tepercaya (memengaruhi deteksi)
     "kelola_blokir": ("admin",),            # blokir / buka blokir IP manual di firewall
+    "kelola_model": ("admin",),             # aktifkan/rollback model, ubah mode, unggah .joblib
+    "kelola_rekam": ("admin",),             # mulai / hentikan perekam lalu lintas
+    "kelola_ai": ("admin",),                # tambah / hapus / ubah profil AI (API key)
+    "pakai_ai": ("admin", "analis"),        # jalankan analisis AI on-demand (IP / ringkasan / tanya)
 }
 
 
@@ -132,6 +136,12 @@ def boleh(hak):
 
 def wajib_hak(hak, pesan="Akun Anda tidak memiliki izin untuk tindakan ini."):
     if not boleh(hak):
+        p = pengguna_aktif()
+        try:
+            catat_audit("AKSES_DITOLAK", aktor=(p["username"] if p else "-"), ip=ip_klien(),
+                        kode=403, ket="%s %s (hak: %s)" % (request.method, request.path[:120], hak))
+        except Exception:
+            pass
         abort(403, pesan)
 
 

@@ -13,6 +13,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from . import asisten_ai
 from . import blokir as daftar_blokir
 from .dugaan import dugaan
 from .umpan_balik import ambang_model, hampir_anomali, kedekatan
@@ -360,13 +361,163 @@ BANTUAN = "\n".join([
     "/diblokir — daftar IP yang sedang diblokir di firewall",
     "/blokir &lt;ip&gt; [1j|24j|7h|permanen] [alasan] — blokir IP secara manual",
     "/buka &lt;ip&gt; — buka blokir IP",
+    "",
+    "<b>Asisten Analisis AI (on-demand)</b>",
+    "/analisis &lt;ip&gt; [koneksi] [model] — analisis AI untuk satu IP sumber",
+    "/ringkasai [7h] [koneksi] [model] — ringkasan eksekutif keamanan 24 jam / 7 hari oleh AI",
+    "/tanya &lt;pertanyaan&gt; — tanya AI berdasarkan log 24 jam terakhir",
+    "/ai [koneksi] [model] — lihat daftar koneksi AI atau ganti provider &amp; model aktif",
+    "/modelai &lt;nama_model&gt; — ganti model AI aktif pada koneksi sekarang",
+    "/models [koneksi] — lihat daftar model dinamis dari API provider",
     "/bantuan — daftar perintah ini",
 ])
 
 PERINTAH_MENU = [("status", "Status modul deteksi & server"), ("ringkasan", "Ringkasan anomali 24 jam"),
                  ("ip", "Rincian satu IP sumber, mis. /ip 1.2.3.4"), ("hampir", "IP yang hampir ditandai anomali"),
                  ("diblokir", "Daftar IP yang sedang diblokir"), ("blokir", "Blokir IP, mis. /blokir 1.2.3.4 1j"),
-                 ("buka", "Buka blokir IP, mis. /buka 1.2.3.4"), ("bantuan", "Daftar perintah")]
+                 ("buka", "Buka blokir IP, mis. /buka 1.2.3.4"),
+                 ("analisis", "Analisis AI satu IP, mis. /analisis 1.2.3.4"),
+                 ("ringkasai", "Ringkasan keamanan 24 jam oleh AI"),
+                 ("tanya", "Tanya AI tentang kondisi keamanan server"),
+                 ("ai", "Lihat / ganti koneksi & model AI aktif"),
+                 ("modelai", "Ganti model AI pada provider sekarang"),
+                 ("models", "Lihat daftar model dinamis dari API AI"),
+                 ("bantuan", "Daftar perintah")]
+
+
+def _format_balasan_ai(judul, res):
+    teks_bersih = e(res["teks"])
+    kepala = "🧠 <b>%s</b>\n<i>%s · %s%s</i>\n\n" % (
+        e(judul), e(res["profil_nama"]), e(res["model"]),
+        " (cache)" if res.get("dari_cache") else "",
+    )
+    isi = kepala + teks_bersih
+    if len(isi) > 3950:
+        isi = isi[:3920] + "\n…"
+    return isi
+
+
+def _pisah_profil_model(path_ai, sisa_tokens):
+    """Dukung `/perintah ... [koneksi] [model]` maupun `/perintah ... [model]`."""
+    if not sisa_tokens:
+        return None, None
+    data = asisten_ai.baca(path_ai)
+    toks = [t for t in sisa_tokens if t]
+    if len(toks) >= 2:
+        p = asisten_ai.cari_profil(data, toks[0])
+        if p is not None:
+            return p["id"], toks[1]
+    if len(toks) == 1:
+        p = asisten_ai.cari_profil(data, toks[0])
+        if p is not None:
+            return p["id"], None
+        return None, toks[0]
+    return None, toks[-1]
+
+
+def aksi_ai_telegram(perintah, argumen, path_log, path_ai=asisten_ai.PATH_BAWAAN,
+                     path_blokir=None, tepercaya=None, transport=None):
+    """Tangani /ai, /modelai, /models, /analisis, /ringkasai, dan /tanya dari bot Telegram."""
+    perintah = (perintah or "").lower()
+    arg = (argumen or "").strip()
+    kw_tr = {"transport": transport} if transport is not None else {}
+
+    if perintah == "ai":
+        if arg:
+            toks = arg.split(None, 1)
+            try:
+                p = asisten_ai.aktifkan_profil(path_ai, toks[0], model_default=(toks[1].strip() if len(toks) > 1 else None))
+            except ValueError as ex:
+                return "❌ %s" % e(str(ex))
+            return "✅ Koneksi AI aktif diubah ke <b>%s</b> (model: <code>%s</code>)." % (e(p["nama"]), e(p["model"]))
+        d = asisten_ai.daftar_aman(path_ai)
+        if not d["profil"]:
+            return ("🧠 <b>Asisten AI belum dikonfigurasi.</b>\n"
+                    "Tambahkan API Key OpenAI / Gemini / Claude di menu <i>Asisten AI</i> pada dashboard ASUNA.")
+        baris = ["🧠 <b>Koneksi Asisten AI Terpasang</b>", ""]
+        for p in d["profil"]:
+            tanda = "✅ <b>aktif</b>" if p["aktif"] else "tersimpan"
+            jml_m = len(p.get("models") or [])
+            baris.append("• <b>%s</b> (%s) — <code>%s</code> (%d model) [%s]" % (
+                e(p["nama"]), e(p["provider_label"]), e(p["model"]), jml_m, tanda))
+        baris.append("\nGanti provider/model: <code>/ai &lt;nama&gt; [model]</code> · <code>/modelai &lt;model&gt;</code> · <code>/models</code>")
+        return "\n".join(baris)
+
+    if perintah == "modelai":
+        if not arg:
+            return "Format: <code>/modelai &lt;nama_model&gt;</code> (contoh: <code>/modelai gpt-4.1-mini</code>)"
+        data = asisten_ai.baca(path_ai)
+        aktif = asisten_ai.cari_profil(data, None)
+        if aktif is None:
+            return "❌ Belum ada koneksi AI yang dikonfigurasi."
+        if aktif.get("dari_env"):
+            return "ℹ️ Koneksi dari environment server tidak dapat diubah lewat bot; tambahkan koneksi di dashboard."
+        try:
+            p = asisten_ai.aktifkan_profil(path_ai, aktif["id"], model_default=arg.split()[0])
+        except ValueError as ex:
+            return "❌ %s" % e(str(ex))
+        return "✅ Model AI aktif pada <b>%s</b> diganti ke <code>%s</code>." % (e(p["nama"]), e(p["model"]))
+
+    if perintah == "models":
+        data = asisten_ai.baca(path_ai)
+        target = asisten_ai.cari_profil(data, arg or None)
+        if target is None:
+            return "❌ Koneksi AI tidak ditemukan."
+        if not target.get("dari_env"):
+            try:
+                target = asisten_ai.segarkan_model(path_ai, target["id"], **kw_tr)
+            except (ValueError, RuntimeError):
+                pass
+        daftar = target.get("models") or [target.get("model")]
+        baris = ["📋 <b>Daftar Model · %s</b> (aktif: <code>%s</code>)" % (e(target["nama"]), e(target["model"])), ""]
+        for m in daftar[:25]:
+            tanda = " ✅" if m == target.get("model") else ""
+            baris.append("• <code>%s</code>%s" % (e(m), tanda))
+        if len(daftar) > 25:
+            baris.append("<i>…dan %d model lainnya (lihat lengkap di dashboard Asisten AI).</i>" % (len(daftar) - 25))
+        return "\n".join(baris)
+
+    try:
+        db = buka_baca(path_log)
+    except sqlite3.Error:
+        return "Log deteksi belum tersedia."
+    try:
+        if perintah == "analisis":
+            bagian = arg.split()
+            if not bagian:
+                return "Format: <code>/analisis &lt;alamat_ip&gt; [koneksi] [model]</code>"
+            try:
+                ip = str(ipaddress.ip_address(bagian[0].strip()))
+            except ValueError:
+                return "❌ <code>%s</code> bukan alamat IP yang valid." % e(bagian[0][:64])
+            profil_req, model_req = _pisah_profil_model(path_ai, bagian[1:])
+            diblokir = bool(daftar_blokir.cocok_dengan(_ambil_diblokir(path_blokir), ip)) if path_blokir else False
+            dipercaya = bool(tepercaya.cocok(ip)) if tepercaya is not None else False
+            res = asisten_ai.analisis_ip(path_ai, db, ip, profil_id=profil_req, model_override=model_req,
+                                         diblokir=diblokir, tepercaya=dipercaya, **kw_tr)
+            return _format_balasan_ai("Analisis AI · %s" % ip, res)
+
+        if perintah == "ringkasai":
+            bagian = arg.split()
+            hari = 7 if any(x.lower() in ("7h", "7", "minggu") for x in bagian) else 1
+            sisa = [x for x in bagian if x.lower() not in ("7h", "7", "minggu", "24j", "1h")]
+            profil_req, model_req = _pisah_profil_model(path_ai, sisa)
+            res = asisten_ai.analisis_ringkasan(path_ai, db, hari=hari, profil_id=profil_req,
+                                                model_override=model_req, **kw_tr)
+            label = "7 hari" if hari == 7 else "24 jam"
+            return _format_balasan_ai("Ringkasan AI (%s)" % label, res)
+
+        if perintah == "tanya":
+            if not arg:
+                return "Format: <code>/tanya &lt;pertanyaan tentang keamanan server&gt;</code>"
+            res = asisten_ai.tanya_keamanan(path_ai, db, arg, **kw_tr)
+            return _format_balasan_ai("Jawaban Asisten AI", res)
+
+        return "Perintah AI tidak dikenal."
+    except (ValueError, RuntimeError) as ex:
+        return "❌ Analisis AI gagal: %s" % e(str(ex))
+    finally:
+        db.close()
 
 
 def jawab(path_log, perintah, argumen, tepercaya=None, kondisi=None, diblokir=None):

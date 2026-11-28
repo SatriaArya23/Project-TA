@@ -93,16 +93,38 @@ def ambang_model(db, batas=None):
     return hasil
 
 
-def periksa_ulang(db, jenis, src_ip, mulai_us, akhir_us, batas=None, hari_dampak=HARI_DAMPAK, kini_us=None):
+def _aturan_cocok_row(db, row, aturan_list, am):
+    """Cek apakah baris aliran (aliran_id, model_id, dst_port, protokol, paket, skor_a, skor_c)
+    sudah cocok dengan salah satu aturan adaptasi aktif."""
+    if not aturan_list:
+        return None
+    from . import adaptasi as ad  # impor lokal agar terhindar dari circular import di atas
+
+    aliran_id, dst_port, protokol, paket = row[0], row[1], row[2], row[3]
+    vec_a = vec_c = None
+    try:
+        fr = db.execute("SELECT vektor_a, vektor_c FROM aliran_fitur WHERE aliran_id = ?", (aliran_id,)).fetchone()
+        if fr and fr[0] and fr[1]:
+            vec_a = json.loads(fr[0])
+            vec_c = json.loads(fr[1])
+    except (sqlite3.Error, ValueError):
+        pass
+    return ad.cocokkan(aturan_list, vec_a=vec_a, vec_c=vec_c, dst_port=dst_port, protokol=protokol, paket=paket)
+
+
+def periksa_ulang(db, jenis, src_ip, mulai_us, akhir_us, batas=None, hari_dampak=HARI_DAMPAK, kini_us=None,
+                  aturan_adaptasi=None):
     """Jalankan langkah 1 loop umpan balik. db = koneksi sqlite3 ke log deteksi (boleh baca-saja).
 
     Kembalikan dict: status, ringkasan aliran, kandidat penyesuaian ambang, dan dampaknya.
     status:
       tidak_ada_aliran       : tidak ada aliran dari IP itu pada rentang waktu (periksa IP/waktu/penangkap)
-      sudah_terdeteksi       : (serangan lolos) sebagian aliran ditandai pada ambang yang berlaku sekarang
+      sudah_terdeteksi       : (serangan lolos) sebagian aliran ditandai pada ambang / adaptasi aktif
       terdeteksi_penyesuaian : terdeteksi bila ambang diturunkan dalam batas aman -> usulan ambang
-      pelatihan_ulang        : tetap tidak terdeteksi / alarm palsu -> antrean modul pelatihan ulang
+      dapat_diadaptasi_normal: (hampir anomali) tidak ditandai, tetapi dekat ambang dan layak diadaptasi normal
+      pelatihan_ulang        : tetap tidak terdeteksi / alarm palsu -> antrean modul pelatihan ulang + adaptasi
     """
+    import sqlite3
     batas = dict(BATAS_CONTAMINATION, **(batas or {}))
     kini_us = kini_us or int(time.time() * 1e6)
     model = _model(db)
@@ -112,31 +134,56 @@ def periksa_ulang(db, jenis, src_ip, mulai_us, akhir_us, batas=None, hari_dampak
         info = model.get(acuan.get(mid)) or {}
         return (info.get(nama) or {}).get("ambang")
 
-    def ditandai(mid, sa, sc, oleh):
-        ta, tc = ambang(mid, "A"), ambang(mid, "C")
-        if ta is None or tc is None:
-            return bool(oleh)
-        return sa > ta or sc > tc
+    def ambang_batas(mid):
+        am_m = model.get(acuan.get(mid)) or {}
+        out = {}
+        for nm in ("A", "C"):
+            sub = am_m.get(nm) or {}
+            t, k = sub.get("ambang"), sub.get("kuantil")
+            out[nm] = min(t, ambang_dari_kontaminasi(k, batas[nm])) if t is not None and k else t
+        return out["A"], out["C"]
 
-    rows = db.execute("SELECT model_id, skor_a, skor_c, oleh, dst_port, waktu_selesai_us FROM aliran "
-                      "WHERE src_ip = ? AND waktu_selesai_us BETWEEN ? AND ?",
+    def ditandai(r):
+        mid, sa, sc, oleh = r[0], r[1], r[2], r[3]
+        ta, tc = ambang(mid, "A"), ambang(mid, "C")
+        tanda_if = (sa > ta or sc > tc) if (ta is not None and tc is not None) else bool(oleh)
+        if aturan_adaptasi and len(r) >= 9:
+            cocok = _aturan_cocok_row(db, (r[6], r[4], r[7], r[8]), aturan_adaptasi, model)
+            if cocok is not None:
+                return cocok.get("label") == "anomali"
+        return tanda_if
+
+    rows = db.execute("SELECT model_id, skor_a, skor_c, oleh, dst_port, waktu_selesai_us, id, protokol, paket "
+                      "FROM aliran WHERE src_ip = ? AND waktu_selesai_us BETWEEN ? AND ?",
                       (src_ip, int(mulai_us), int(akhir_us))).fetchall()
     hasil = {"jenis": jenis, "src_ip": src_ip, "mulai_us": int(mulai_us), "akhir_us": int(akhir_us),
              "diperiksa_us": kini_us, "batas_contamination": batas, "aliran": len(rows),
-             "ditandai": sum(1 for r in rows if ditandai(r[0], r[1], r[2], r[3])), "kandidat": [],
-             "versi_acuan": sorted({(model.get(acuan.get(r[0])) or {}).get("versi") or "?" for r in rows})}
+             "ditandai": sum(1 for r in rows if ditandai(r)), "kandidat": [],
+             "versi_acuan": sorted({(model.get(acuan.get(r[0])) or {}).get("versi") or "?" for r in rows}),
+             "bisa_adaptasi": bool(rows)}
     port = {}
     for r in rows:
         port[r[4]] = port.get(r[4], 0) + 1
     hasil["port_teratas"] = sorted(port.items(), key=lambda x: -x[1])[:5]
     if not rows:
         hasil["status"] = "tidak_ada_aliran"
+        hasil["bisa_adaptasi"] = False
         return hasil
 
+    dekat_hampir = 0
+    for r in rows:
+        ba, bc = ambang_batas(r[0])
+        if (ba is not None and r[1] > ba) or (bc is not None and r[2] > bc):
+            dekat_hampir += 1
+    hasil["aliran_dekat"] = dekat_hampir
+
     if jenis == "palsu":
-        # Menaikkan ambang secara global akan menghilangkan deteksi lain, jadi alarm palsu
-        # dijadikan contoh normal untuk pelatihan ulang.
-        hasil["status"] = "pelatihan_ulang" if hasil["ditandai"] else "tidak_ada_alarm"
+        if hasil["ditandai"]:
+            hasil["status"] = "pelatihan_ulang"
+        elif dekat_hampir:
+            hasil["status"] = "dapat_diadaptasi_normal"
+        else:
+            hasil["status"] = "tidak_ada_alarm"
         return hasil
     if hasil["ditandai"]:
         hasil["status"] = "sudah_terdeteksi"
@@ -208,15 +255,32 @@ def kedekatan(am, mid, maks_a, maks_c):
     return hasil
 
 
-def hampir_anomali(db, awal_us, abaikan=None):
+def _termasuk_selesai(ip, t0, t1, kasus_selesai):
+    for k in kasus_selesai or ():
+        if k.get("src_ip") == ip and int(k.get("akhir_us", 0)) >= t0 and int(k.get("mulai_us", 0)) <= t1:
+            return True
+    return False
+
+
+def hampir_anomali(db, awal_us, abaikan=None, aturan_adaptasi=None, kasus_selesai=None):
     """IP sumber yang TIDAK ditandai sama sekali sejak awal_us, tetapi punya aliran dengan skor di atas
-    ambang batas aman umpan balik (BATAS_CONTAMINATION). Bila administrator melaporkannya sebagai
-    "serangan lolos", periksa ulang akan dapat mengusulkan ambang baru untuknya. Urut dari aliran
-    mendekati ambang terbanyak (pola berulang, mis. brute force lambat, lebih patut dicurigai daripada
-    satu aliran aneh), lalu dari yang paling dekat ke ambang. abaikan(ip) -> True untuk melewati IP
-    (mis. IP tepercaya)."""
+    ambang batas aman umpan balik (BATAS_CONTAMINATION).
+
+    Aliran yang sudah diverifikasi sebagai `selesai` pada umpan balik maupun yang sudah cocok dengan
+    aturan adaptasi aktif (`anomali` atau `normal`) tidak lagi ditampilkan sebagai 'hampir anomali'.
+    """
     am = ambang_model(db)
     per = {}
+    if aturan_adaptasi:
+        from . import adaptasi as ad
+        try:
+            ada_fitur = bool(db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='aliran_fitur'").fetchone())
+        except Exception:
+            ada_fitur = False
+    else:
+        ad = None
+        ada_fitur = False
+
     for mid, m in am.items():
         ta, tc, ba, bc = m["A"]["ambang"], m["C"]["ambang"], m["A"]["batas"], m["C"]["batas"]
         if None in (ta, tc, ba, bc):
@@ -233,8 +297,44 @@ def hampir_anomali(db, awal_us, abaikan=None):
             p["awal"], p["akhir"] = min(p["awal"], t0), max(p["akhir"], t1)
             if dekat:
                 p["skor"] += kedekatan(am, mid, ma, mc)
-    daftar = [p for p in per.values() if not p["tanda"] and p["dekat"] and p["skor"]
-              and not (abaikan and abaikan(p["src_ip"]))]
+
+    # Kecualikan IP/rentang yang sudah diselesaikan atau sudah cocok aturan adaptasi aktif
+    daftar = []
+    for p in per.values():
+        if p["tanda"] or not p["dekat"] or not p["skor"]:
+            continue
+        if abaikan and abaikan(p["src_ip"]):
+            continue
+        if _termasuk_selesai(p["src_ip"], p["awal"], p["akhir"], kasus_selesai):
+            continue
+        if ad and aturan_adaptasi:
+            # Cek apakah seluruh aliran 'dekat' milik IP ini sudah tercakup oleh aturan adaptasi aktif
+            q = ("SELECT a.id, a.dst_port, a.protokol, a.paket, a.model_id, a.skor_a, a.skor_c "
+                 "FROM aliran a WHERE a.src_ip = ? AND a.waktu_selesai_us >= ? AND (a.skor_a > ? OR a.skor_c > ?)")
+            # Ambil batas terendah across models untuk pre-filter aman
+            min_ba = min(mm["A"]["batas"] for mm in am.values() if mm["A"]["batas"] is not None)
+            min_bc = min(mm["C"]["batas"] for mm in am.values() if mm["C"]["batas"] is not None)
+            cand_rows = db.execute(q, (p["src_ip"], awal_us, min_ba, min_bc)).fetchall()
+            masih_ambigu = False
+            for r in cand_rows:
+                mm = am.get(r[4])
+                if not mm or not (r[5] > mm["A"]["batas"] or r[6] > mm["C"]["batas"]):
+                    continue
+                vec_a = vec_c = None
+                if ada_fitur:
+                    fr = db.execute("SELECT vektor_a, vektor_c FROM aliran_fitur WHERE aliran_id = ?", (r[0],)).fetchone()
+                    if fr and fr[0] and fr[1]:
+                        try:
+                            vec_a, vec_c = json.loads(fr[0]), json.loads(fr[1])
+                        except ValueError:
+                            pass
+                if ad.cocokkan(aturan_adaptasi, vec_a=vec_a, vec_c=vec_c, dst_port=r[1], protokol=r[2], paket=r[3]) is None:
+                    masih_ambigu = True
+                    break
+            if cand_rows and not masih_ambigu:
+                continue
+        daftar.append(p)
+
     for p in daftar:
         # model yang paling mendekati ambangnya (jarak persentil ke persentil ambang paling kecil)
         p["terdekat"] = min(p["skor"], key=lambda s: s["persentil_ambang"] - s["persentil"])
@@ -247,6 +347,7 @@ TEKS_STATUS = {
     "tidak_ada_alarm": "Tidak ada alarm dari IP ini pada rentang waktu tersebut",
     "sudah_terdeteksi": "Sudah terdeteksi oleh model saat ini",
     "terdeteksi_penyesuaian": "Terdeteksi setelah penyesuaian ambang",
+    "dapat_diadaptasi_normal": "Hampir anomali — siap diadaptasi sebagai lalu lintas normal",
     "pelatihan_ulang": "Masuk antrean pelatihan ulang",
     "selesai": "Selesai",
 }
